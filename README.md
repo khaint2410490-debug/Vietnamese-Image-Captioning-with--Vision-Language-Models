@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Vietnamese Image Captioning with Vision-Language Models
 
 ## Mục đích
@@ -412,3 +413,6 @@ các giá trị tương ứng vào `load_model()`.
 - `training/backpropagation.py` và `training/optimizer.py` là các utility độc
   lập, không thuộc luồng train hiện tại.
 - `captions.txt` không tự động được dịch hoặc đồng bộ sang CSV khi chạy pipeline.
+=======
+Vietnamese-Image-Captioning-with--Vision-Language-Models
+>>>>>>> 3fe87f302a3532257da5b6a6ac3e48fe9a2e6b5a
