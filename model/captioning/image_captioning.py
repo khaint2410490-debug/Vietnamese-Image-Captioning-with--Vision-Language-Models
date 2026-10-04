@@ -13,7 +13,9 @@ Input : ảnh (đường dẫn .jpg hoặc tensor) + caption token (từ bắt �
 Output: predicted caption (list token hoặc chuỗi văn bản)
 """
 
+import os
 import re
+import tempfile
 from pathlib import Path
 
 import torch
@@ -220,8 +222,20 @@ class ImageCaptioningModel(nn.Module):
     # Lưu / tải trọng số
     # ------------------------------------------------------------------ #
     def save_weights(self, path: str) -> None:
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        torch.save(self.state_dict(), path)
+        weights_path = Path(path)
+        weights_path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            dir=weights_path.parent,
+            suffix=weights_path.suffix,
+            delete=False,
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+
+        try:
+            torch.save(self.state_dict(), temporary_path)
+            os.replace(temporary_path, weights_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
 
     def load_weights(self, path: str) -> None:
         state = torch.load(path, map_location=self._device())

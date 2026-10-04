@@ -93,3 +93,7 @@ def main() -> None:
         backbone_learning_rate=BACKBONE_LEARNING_RATE,
     )
     print(f"Huấn luyện hoàn tất. Trọng số được lưu tại: {WEIGHTS_PATH}")
+
+
+if __name__ == "__main__":
+    main()
