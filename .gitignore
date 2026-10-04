@@ -1,0 +1,10 @@
+/.venv
+/.vscode
+/__pycache__
+data/processed/test.csv
+data/processed/train.csv
+data/processed/validation.csv
+data/vocabulary/tokenizer.json
+__init__.py
+*.jpg
+*.pyc
