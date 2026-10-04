@@ -10,6 +10,8 @@ Tên dự án có cụm “Vision-Language Models”, nhưng kiến trúc hiện
 mô hình vision-language đóng gói sẵn như CLIP. Đây là pipeline image captioning
 tự huấn luyện, ghép CNN encoder với bộ giải mã ngôn ngữ.
 
+Database sử dụng: https://www.kaggle.com/datasets/adityajn105/flickr8k
+
 ## Chức năng chính
 
 - Tiền xử lý ảnh và văn bản caption.
@@ -41,20 +43,24 @@ token kế tiếp -> caption tiếng Việt`
 
 ## Vai trò của từng file
 
-Các mục dưới đây theo thứ tự thư mục được yêu cầu. Với mỗi file, phần **Input**,
-**Output**, **Pipeline** và **Kiến thức** mô tả vai trò thực tế của file.
+### Dữ liệu và artifact
+
+- `data/raw/captions.csv`: dữ liệu caption tiếng Việt dùng làm đầu vào mặc định.
+  Header là `image,caption`; một ảnh có thể có nhiều caption.
+- `data/raw/captions.txt`: dữ liệu caption nguồn tiếng Anh để đối chiếu; pipeline
+  `main.py` hiện không đọc file này.
+- `data/raw/Images/`: ảnh đầu vào, tham chiếu bằng tên file trong cột `image`.
+- `data/processed/train.csv`, `validation.csv`, `test.csv`: các split được
+  `split.py` sinh ra. Các file có thể bị Git ignore.
+- `data/vocabulary/tokenizer.json`: từ điển token-ID được `main.py` xây từ train
+  split và lưu lại.
+- `data/processed/caption_weights.pt`: weights của checkpoint được `train.py`
+  lưu. Khi validation được bật, đây là checkpoint có validation loss tốt nhất.
+
+Checkpoint và tokenizer phải thuộc cùng một lần huấn luyện/cùng một từ điển; nếu
+khác nhau, kích thước hoặc ID token có thể không khớp khi nạp model.
 
 ### `preprocessing/`
-
-#### `preprocessing/__init__.py`
-
-- **Vai trò:** Đánh dấu `preprocessing` là package Python và cung cấp mô tả chung
-  về các bước tiền xử lý.
-- **Input:** Không nhận dữ liệu khi import.
-- **Output:** Không tạo file hay dữ liệu; cho phép import các module trong package.
-- **Pipeline:** Được Python thực thi khi package được import; không tự gọi các hàm
-  tiền xử lý.
-- **Kiến thức:** Python package và hệ thống import.
 
 #### `preprocessing/image_preprocessing.py`
 
@@ -74,7 +80,7 @@ Các mục dưới đây theo thứ tự thư mục được yêu cầu. Với m
 - **Output:** Danh sách token chữ thường, có `<start>` ở đầu và `<end>` ở cuối.
 - **Pipeline:** Chuẩn hóa Unicode NFC -> chuyển chữ thường -> gộp khoảng trắng ->
   tách từ và dấu câu -> thêm token bắt đầu/kết thúc.
-- **Kiến thức:** Unicode, biểu thức chính quy, tokenization và token đặc biệt.
+- **Kiến thức:** tokenization và token đặc biệt.
 
 #### `preprocessing/tokenizer.py`
 
@@ -87,18 +93,12 @@ Các mục dưới đây theo thứ tự thư mục được yêu cầu. Với m
 - **Pipeline:** Khi tạo từ điển, áp dụng `preprocess_caption`, đếm tần suất, giữ
   token đủ ngưỡng và gán ID. Khi mã hóa, từ ngoài từ điển thành `<unk>`; có thể
   cắt chuỗi và giữ `<end>` hoặc đệm bằng `<pad>`.
-- **Kiến thức:** Từ vựng, token-to-ID, tần suất token, padding và serialization
+- **Kiến thức:** token-to-ID, tần suất token, padding và serialization
   JSON.
 
 ### `model/cnn/`
 
 #### `model/cnn/__init__.py`
-
-- **Vai trò:** Đánh dấu package CNN.
-- **Input:** Không nhận dữ liệu khi import.
-- **Output:** Không tạo file hay tensor.
-- **Pipeline:** Được Python thực thi khi import package; không tự khởi tạo encoder.
-- **Kiến thức:** Python package và hệ thống import.
 
 #### `model/cnn/cnn_encoder.py`
 
@@ -115,14 +115,6 @@ Các mục dưới đây theo thứ tự thư mục được yêu cầu. Với m
   global average pooling, projection layer, BatchNorm và fine-tuning.
 
 ### `model/neural_network/`
-
-#### `model/neural_network/__init__.py`
-
-- **Vai trò:** Đánh dấu package chứa các thành phần neural network.
-- **Input:** Không nhận dữ liệu khi import.
-- **Output:** Không tạo file hay tensor.
-- **Pipeline:** Được Python thực thi khi import package; không tự tạo layer.
-- **Kiến thức:** Python package và hệ thống import.
 
 #### `model/neural_network/activation.py`
 
@@ -159,26 +151,7 @@ Các mục dưới đây theo thứ tự thư mục được yêu cầu. Với m
 - **Kiến thức:** Attention, RNN tuần tự, LSTM/GRU, teacher forcing, greedy
   decoding và regularization attention.
 
-#### `model/__init__.py`
-
-- **Vai trò:** Đánh dấu thư mục `model` là package Python gốc cho các thành phần
-  CNN, neural network và captioning.
-- **Input:** Không nhận dữ liệu khi import.
-- **Output:** Không tạo file hay tensor.
-- **Pipeline:** Được Python thực thi khi import `model`; không tự khởi tạo các
-  thành phần mô hình.
-- **Kiến thức:** Python package và hệ thống import.
-
 ### `model/captioning/`
-
-#### `model/captioning/__init__.py`
-
-- **Vai trò:** Đánh dấu package chứa mô hình captioning.
-- **Input:** Không nhận dữ liệu khi import.
-- **Output:** Không tạo file hay tensor.
-- **Pipeline:** Được Python thực thi khi import package; không tự tải hoặc tạo
-  mô hình.
-- **Kiến thức:** Python package và hệ thống import.
 
 #### `model/captioning/embedding.py`
 
@@ -220,14 +193,6 @@ Các mục dưới đây theo thứ tự thư mục được yêu cầu. Với m
 
 ### `evaluation/`
 
-#### `evaluation/__init__.py`
-
-- **Vai trò:** Đánh dấu package chứa hàm sinh caption và đánh giá.
-- **Input:** Không nhận dữ liệu khi import.
-- **Output:** Không tạo file hay caption.
-- **Pipeline:** Được Python thực thi khi import package; không tự chạy đánh giá.
-- **Kiến thức:** Python package và hệ thống import.
-
 #### `evaluation/generate_caption.py`
 
 - **Vai trò:** Nạp từ điển và checkpoint tương ứng, rồi cung cấp hàm sinh caption
@@ -241,17 +206,6 @@ Các mục dưới đây theo thứ tự thư mục được yêu cầu. Với m
   temperature/top-k sampling.
 
 ### `training/`
-
-Thư mục này cũng được liệt kê để README bao quát các file thực sự tham gia vào
-quá trình train.
-
-#### `training/__init__.py`
-
-- **Vai trò:** Đánh dấu package huấn luyện.
-- **Input:** Không nhận dữ liệu khi import.
-- **Output:** Không tạo file hay mô hình.
-- **Pipeline:** Được Python thực thi khi import package; không tự chạy training.
-- **Kiến thức:** Python package và hệ thống import.
 
 #### `training/train.py`
 
@@ -342,33 +296,3 @@ quá trình train.
   mỗi ảnh vào duy nhất một split.
 - **Kiến thức:** Chia tập dữ liệu, kiểm soát random seed, chống data leakage và
   CSV I/O.
-
-#### `.gitignore`
-
-- **Vai trò:** Khai báo file/thư mục Git không theo dõi, bao gồm môi trường `.venv`,
-  bytecode, ảnh JPG và một số dữ liệu sinh ra như split CSV, tokenizer và
-  checkpoint.
-- **Input:** Quy tắc ignore trong file.
-- **Output:** Ảnh hưởng đến danh sách file Git hiển thị; không thay đổi pipeline
-  Python.
-- **Pipeline:** Git đối chiếu đường dẫn trong repository với các pattern khi xác
-  định file cần theo dõi.
-- **Kiến thức:** Git ignore patterns.
-
-### Dữ liệu và artifact
-
-- `data/raw/captions.csv`: dữ liệu caption tiếng Việt dùng làm đầu vào mặc định.
-  Header là `image,caption`; một ảnh có thể có nhiều caption.
-- `data/raw/captions.txt`: dữ liệu caption nguồn tiếng Anh để đối chiếu; pipeline
-  `main.py` hiện không đọc file này.
-- `data/raw/Images/`: ảnh đầu vào, tham chiếu bằng tên file trong cột `image`.
-- `data/processed/train.csv`, `validation.csv`, `test.csv`: các split được
-  `split.py` sinh ra. Các file có thể bị Git ignore.
-- `data/vocabulary/tokenizer.json`: từ điển token-ID được `main.py` xây từ train
-  split và lưu lại.
-- `data/processed/caption_weights.pt`: weights của checkpoint được `train.py`
-  lưu. Khi validation được bật, đây là checkpoint có validation loss tốt nhất.
-
-Checkpoint và tokenizer phải thuộc cùng một lần huấn luyện/cùng một từ điển; nếu
-khác nhau, kích thước hoặc ID token có thể không khớp khi nạp model.
-
