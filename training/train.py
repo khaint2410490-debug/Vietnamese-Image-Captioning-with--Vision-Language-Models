@@ -325,7 +325,7 @@ def train(
         model.encoder.unfreeze_backbone(fine_tune_last_n_stages)
         add_backbone_parameters()
 
-    sample_image = samples[0][0]
+    sample_images = list(dict.fromkeys(image_path for image_path, _ in samples))
 
     use_val = bool(val_samples)
     best_val, best_epoch, bad_epochs = float("inf"), 0, 0
@@ -346,7 +346,10 @@ def train(
         else:
             print(f"Epoch {epoch}: loss trung bình = {train_loss:.4f}")
 
-        caption = model.tokens_to_text(model.generate_caption(sample_image, max_length=max_length))
+        sample_image = random.choice(sample_images)
+        caption = model.tokens_to_text(
+            model.generate_caption(sample_image, max_length=max_length)
+        )
         print(f"  caption thử cho {Path(sample_image).name}: {caption}")
         history.append(record)
 
