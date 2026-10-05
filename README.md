@@ -205,6 +205,20 @@ khác nhau, kích thước hoặc ID token có thể không khớp khi nạp mod
 - **Kiến thức:** Inference, checkpoint compatibility, greedy decoding và
   temperature/top-k sampling.
 
+#### `evaluation/evaluation.py`
+
+- **Vai trò:** Tự nạp checkpoint và tokenizer theo đường dẫn dự án, sinh caption
+  cho từng ảnh trong `data/processed/test.csv`, rồi chấm BLEU-1..4 tổng thể và
+  theo từng ảnh; đồng thời tính loss và perplexity trên caption tham chiếu.
+- **Chạy:** Từ thư mục gốc dự án, chạy `python -m evaluation.evaluation`.
+- **Input:** `data/processed/test.csv`, ảnh trong `data/raw/Images`,
+  `data/vocabulary/tokenizer.json` và `data/processed/caption_weights.pt`.
+- **Output:** BLEU tổng thể, loss/perplexity và BLEU-1..4 cùng caption dự đoán
+  cho từng ảnh, in ra terminal; CSV kết quả tại
+  `data/processed/evaluation.csv` (được ghi đè sau mỗi lần chạy).
+- **Kiến thức:** Corpus BLEU, sinh caption tự hồi quy, teacher forcing,
+  cross-entropy và perplexity.
+
 ### `training/`
 
 #### `training/train.py`

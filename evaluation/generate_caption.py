@@ -10,9 +10,13 @@ Lưu ý: feature_dim và word_embed_dim phải giống lúc huấn luyện, và 
 phải là từ điển đã dùng để huấn luyện, nếu không weight sẽ không khớp với mô hình.
 """
 
+import sys
 from pathlib import Path
 
 import torch
+
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from model.captioning.image_captioning import ImageCaptioningModel
 from preprocessing.tokenizer import DEFAULT_VOCAB_PATH, Tokenizer
