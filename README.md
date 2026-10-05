@@ -11,6 +11,8 @@ mô hình vision-language đóng gói sẵn như CLIP. Bên dưới có là pipe
 tự huấn luyện, ghép CNN encoder với bộ giải mã ngôn ngữ.
 
 Database sử dụng: https://www.kaggle.com/datasets/adityajn105/flickr8k
+Kết quả test evaluation: data/processed/evaluation.cvs
+model sau train: data/processed/caption_weight.pt
 
 ## Chức năng chính
 
