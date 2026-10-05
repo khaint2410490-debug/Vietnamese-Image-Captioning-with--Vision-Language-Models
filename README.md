@@ -6,8 +6,8 @@ Dự án xây dựng mô hình sinh chú thích tiếng Việt cho ảnh. Mô h�
 trích xuất đặc trưng thị giác bằng CNN pretrained, sau đó sinh caption từng token
 một bằng decoder có attention.
 
-Tên dự án có cụm “Vision-Language Models”, nhưng kiến trúc hiện tại không dùng một
-mô hình vision-language đóng gói sẵn như CLIP. Đây là pipeline image captioning
+Kiến trúc hiện tại không dùng
+mô hình vision-language đóng gói sẵn như CLIP. Bên dưới có là pipeline image captioning
 tự huấn luyện, ghép CNN encoder với bộ giải mã ngôn ngữ.
 
 Database sử dụng: https://www.kaggle.com/datasets/adityajn105/flickr8k
