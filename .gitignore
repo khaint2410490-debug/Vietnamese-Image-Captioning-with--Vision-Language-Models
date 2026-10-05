@@ -6,6 +6,5 @@ data/processed/train.csv
 data/processed/validation.csv
 data/vocabulary/tokenizer.json
 __init__.py
-caption_weights.pt
 *.jpg
 *.pyc
