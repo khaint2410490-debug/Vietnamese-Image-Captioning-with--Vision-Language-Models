@@ -197,6 +197,8 @@ khác nhau, kích thước hoặc ID token có thể không khớp khi nạp mod
 
 - **Vai trò:** Nạp từ điển và checkpoint tương ứng, rồi cung cấp hàm sinh caption
   cho ảnh mới. File không dịch caption; ngôn ngữ đầu ra phụ thuộc dữ liệu train.
+- **Chạy từ terminal:** `python evaluation/generate_caption.py <đường_dẫn_ảnh.jpg>`
+  (thêm dấu nháy nếu đường dẫn có khoảng trắng); caption được in ra terminal.
 - **Input:** Đường dẫn checkpoint, từ điển, cấu hình kiến trúc và đường dẫn ảnh.
 - **Output:** Mô hình ở chế độ eval hoặc caption dạng chuỗi.
 - **Pipeline:** Kiểm tra file vocabulary/checkpoint -> kiểm tra checkpoint có cũ

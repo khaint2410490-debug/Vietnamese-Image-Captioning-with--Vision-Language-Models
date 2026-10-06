@@ -10,6 +10,7 @@ Lưu ý: feature_dim và word_embed_dim phải giống lúc huấn luyện, và 
 phải là từ điển đã dùng để huấn luyện, nếu không weight sẽ không khớp với mô hình.
 """
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -104,3 +105,19 @@ def generate_caption(
         top_k=top_k,
         verbose=verbose,
     )
+
+
+def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8")
+    parser = argparse.ArgumentParser(
+        description="Generate a caption for one image using the trained model."
+    )
+    parser.add_argument("image_path", help="Path to a .jpg or .jpeg image")
+    args = parser.parse_args()
+
+    model = load_model()
+    print(generate_caption(model, args.image_path))
+
+
+if __name__ == "__main__":
+    main()
