@@ -12,6 +12,10 @@ tự huấn luyện, ghép CNN encoder với bộ giải mã ngôn ngữ.
 
 Database sử dụng: https://www.kaggle.com/datasets/adityajn105/flickr8k
 
+Kết quả test evaluation: data/processed/evaluation.cvs
+
+model sau train: data/processed/caption_weight.pt
+
 ## Chức năng chính
 
 - Tiền xử lý ảnh và văn bản caption.
