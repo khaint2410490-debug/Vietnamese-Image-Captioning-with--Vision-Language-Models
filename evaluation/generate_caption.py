@@ -1,13 +1,12 @@
 """
 generate_caption.py
 
-Dùng mô hình đã huấn luyện để tạo caption cho một ảnh mới.
+Dùng mô hình đã huấn luyện để tạo caption cho một ảnh mới:
 
     Image (.jpg) --> CNN --> Image feature --> sinh từng từ một --> ghép lại thành caption
 
 Ngôn ngữ caption phụ thuộc vào dữ liệu đã dùng để huấn luyện; hàm này không dịch.
-Lưu ý: feature_dim và word_embed_dim phải giống lúc huấn luyện, và từ điển
-phải là từ điển đã dùng để huấn luyện, nếu không weight sẽ không khớp với mô hình.
+Lưu ý: feature_dim, word_embed_dim và từ điển phải khớp với lúc huấn luyện.
 """
 
 import argparse
@@ -22,6 +21,7 @@ if not __package__:
 from model.captioning.image_captioning import ImageCaptioningModel
 from preprocessing.tokenizer import DEFAULT_VOCAB_PATH, Tokenizer
 from project_paths import CAPTIONS_PATH, WEIGHTS_PATH
+
 
 def load_model(
     weights_path: str | Path = WEIGHTS_PATH,
@@ -39,9 +39,9 @@ def load_model(
     vocab_file = Path(vocab_path) if vocab_path else DEFAULT_VOCAB_PATH
     weights_file = Path(weights_path)
     if not vocab_file.is_file():
-        raise FileNotFoundError(f"Không tìm thấy file từ điển: {vocab_file}")
+        raise FileNotFoundError(f"Vocabulary file not found: {vocab_file}")
     if not weights_file.is_file():
-        raise FileNotFoundError(f"Không tìm thấy file weight: {weights_file}")
+        raise FileNotFoundError(f"Weights checkpoint not found: {weights_file}")
     if CAPTIONS_PATH.is_file():
         latest_data_time = max(
             CAPTIONS_PATH.stat().st_mtime,
@@ -49,8 +49,8 @@ def load_model(
         )
         if weights_file.stat().st_mtime < latest_data_time:
             raise RuntimeError(
-                "Checkpoint cũ hơn captions hoặc vocabulary. "
-                "Hãy chạy lại main.py để huấn luyện mô hình bằng dữ liệu mới."
+                "Checkpoint is older than captions.csv or vocabulary. "
+                "Re-run main.py to retrain the model on updated data."
             )
 
     tokenizer = Tokenizer.load(str(vocab_file))
@@ -68,12 +68,13 @@ def load_model(
         model.load_weights(str(weights_file))
     except RuntimeError as error:
         raise RuntimeError(
-            "Weight không khớp với mô hình. Hãy kiểm tra từ điển, feature_dim và "
-            f"word_embed_dim có giống lúc huấn luyện không.\nChi tiết: {error}"
+            "Checkpoint weights do not match model architecture. Verify vocabulary, "
+            f"feature_dim, and word_embed_dim.\nDetails: {error}"
         ) from error
 
     model.eval()
     return model
+
 
 def generate_caption(
     model: ImageCaptioningModel,
@@ -91,7 +92,7 @@ def generate_caption(
         model      : mô hình đã load weight (xem load_model).
         image_path : đường dẫn ảnh .jpg.
         max_length : độ dài tối đa của chuỗi token (tính cả <start>).
-        greedy     : True chọn từ có xác suất cao nhất, False lấy mẫu ngẫu nhiên.
+        greedy     : True chọn từ xác suất cao nhất, False lấy mẫu ngẫu nhiên.
         temperature, top_k: chỉ dùng khi greedy=False.
         verbose    : in ra từng từ được chọn cùng xác suất của nó.
     Returns:

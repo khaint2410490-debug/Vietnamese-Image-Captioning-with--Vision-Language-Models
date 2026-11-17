@@ -11,7 +11,7 @@ thể vừa xuất hiện trong train vừa xuất hiện trong test, khiến k�
     image,caption
     1000268201_693b08cb0e.jpg,"Một đứa trẻ mặc váy hồng đang leo lên một bộ cầu thang theo lối vào ."
 
-output: train.csv, validation.csv, test.csv.
+Đầu ra: train.csv, validation.csv, test.csv.
 """
 
 import csv
@@ -22,21 +22,23 @@ from project_paths import CAPTIONS_PATH, IMAGES_DIR
 
 DEFAULT_CAP_PATH = CAPTIONS_PATH
 
+
 def read_captions(captions_path: str = DEFAULT_CAP_PATH) -> dict[str, list[str]]:
     """Đọc captions.csv, gom các caption theo ảnh: {tên ảnh: [caption, ...]}."""
     grouped: dict[str, list[str]] = {}
     with open(captions_path, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         if reader.fieldnames is None or not {"image", "caption"} <= set(reader.fieldnames):
-            raise ValueError("File caption cần có header với hai cột: image,caption")
+            raise ValueError("Caption file must include header columns: image,caption")
         for row in reader:
             image = (row["image"] or "").strip()
             caption = (row["caption"] or "").strip()
             if image and caption:
                 grouped.setdefault(image, []).append(caption)
     if not grouped:
-        raise RuntimeError("Không đọc được cặp (ảnh, caption) nào từ file")
+        raise RuntimeError("No valid (image, caption) pairs read from file")
     return grouped
+
 
 def split_images(
     images: list[str],
@@ -45,8 +47,8 @@ def split_images(
     seed: int,
 ) -> tuple[list[str], list[str], list[str]]:
     """Xáo trộn danh sách ảnh (cố định theo seed) rồi cắt thành train / validation / test."""
-    images = sorted(images)                       
-    """sắp xếp trước để kết quả không phụ thuộc thứ tự file"""
+    # Sắp xếp trước để kết quả không phụ thuộc thứ tự file trên hệ thống
+    images = sorted(images)
     random.Random(seed).shuffle(images)
 
     n = len(images)
@@ -54,12 +56,13 @@ def split_images(
     n_test = max(1, round(n * test_ratio)) if test_ratio > 0 else 0
     n_train = n - n_val - n_test
     if n_train < 1:
-        raise ValueError(f"Chỉ có {n} ảnh, không đủ để chia thành 3 tập")
+        raise ValueError(f"Only {n} images available, not enough to split into 3 sets")
 
     train = images[:n_train]
     val = images[n_train : n_train + n_val]
     test = images[n_train + n_val :]
     return train, val, test
+
 
 def write_split(path: Path, images: list[str], grouped: dict[str, list[str]]) -> int:
     """Ghi các ảnh trong một tập (kèm toàn bộ caption của chúng) ra file .csv. Trả về số caption."""
@@ -73,6 +76,7 @@ def write_split(path: Path, images: list[str], grouped: dict[str, list[str]]) ->
                 count += 1
     return count
 
+
 def split_dataset(
     captions_path: str | Path = CAPTIONS_PATH,
     output_dir: str | Path | None = None,
@@ -84,7 +88,7 @@ def split_dataset(
 ) -> tuple[Path, Path, Path]:
     """Chia captions theo ảnh, ghi CSV và trả về đường dẫn train/validation/test."""
     if abs(train_ratio + val_ratio + test_ratio - 1.0) > 1e-6:
-        raise ValueError("train_ratio + val_ratio + test_ratio phải bằng 1")
+        raise ValueError("train_ratio + val_ratio + test_ratio must equal 1")
 
     captions_path = Path(captions_path)
     grouped = read_captions(str(captions_path))
@@ -95,24 +99,24 @@ def split_dataset(
         for name in missing:
             del grouped[name]
         if missing:
-            print(f"Cảnh báo: bỏ qua {len(missing)} ảnh không tồn tại trong {images_dir}")
+            print(f"Warning: skipped {len(missing)} images missing from {images_dir}")
         if not grouped:
-            raise RuntimeError("Không còn ảnh nào hợp lệ để chia")
+            raise RuntimeError("No valid images remaining to split")
 
     train, val, test = split_images(list(grouped), val_ratio, test_ratio, seed)
 
-    # Kiểm tra: không có ảnh nào nằm ở hai tập
+    # Kiểm tra: không có ảnh nào nằm trùng ở hai tập
     assert not (set(train) & set(val)) and not (set(train) & set(test)) and not (set(val) & set(test))
 
     output_dir = Path(output_dir) if output_dir else captions_path.parent
     output_dir.mkdir(parents=True, exist_ok=True)
 
     total_captions = sum(len(c) for c in grouped.values())
-    print(f"Tổng: {len(grouped)} ảnh, {total_captions} caption")
+    print(f"Total: {len(grouped)} images, {total_captions} captions")
     paths = []
     for name, images in (("train", train), ("validation", val), ("test", test)):
         path = output_dir / f"{name}.csv"
         n_captions = write_split(path, images, grouped)
-        print(f"  {name:<10}: {len(images):>6} ảnh, {n_captions:>7} caption  -> {path}")
+        print(f"  {name:<10}: {len(images):>6} images, {n_captions:>7} captions -> {path}")
         paths.append(path)
     return paths[0], paths[1], paths[2]

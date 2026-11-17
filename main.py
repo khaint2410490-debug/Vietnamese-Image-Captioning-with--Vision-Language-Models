@@ -31,13 +31,14 @@ WORD_EMBEDDING_DIM = 256
 TRAINING_LIMIT = None
 RANDOM_SEED = 42
 
+
 def main() -> None:
     random.seed(RANDOM_SEED)
     torch.manual_seed(RANDOM_SEED)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Thiết bị: {device}")
+    print(f"Device: {device}")
 
-    print("\nBước 1/4: Chia dữ liệu")
+    print("\nStep 1/4: Splitting dataset")
     train_path, validation_path, _ = split_dataset(
         captions_path=CAPTIONS_PATH,
         output_dir=PROCESSED_DATA_DIR,
@@ -45,15 +46,15 @@ def main() -> None:
         seed=RANDOM_SEED,
     )
 
-    print("\nBước 2/4: Đọc caption và xây từ điển")
+    print("\nStep 2/4: Loading captions and building vocabulary")
     pairs = load_captions(str(train_path), str(IMAGES_DIR))
     validation_pairs = load_captions(
         str(validation_path), str(IMAGES_DIR)
     )
     if TRAINING_LIMIT is not None:
         pairs = pairs[:TRAINING_LIMIT]
-    print(f"Số cặp ảnh-caption dùng để huấn luyện: {len(pairs)}")
-    print(f"Số cặp ảnh-caption dùng để validation: {len(validation_pairs)}")
+    print(f"Training image-caption pairs: {len(pairs)}")
+    print(f"Validation image-caption pairs: {len(validation_pairs)}")
 
     tokenizer = Tokenizer()
     tokenizer.build_vocab(
@@ -61,13 +62,13 @@ def main() -> None:
         min_freq=MIN_WORD_FREQUENCY,
     )
     tokenizer.save(str(VOCAB_PATH))
-    print(f"Đã lưu từ điển gồm {tokenizer.vocab_size} token: {VOCAB_PATH}")
+    print(f"Saved vocabulary ({tokenizer.vocab_size} tokens): {VOCAB_PATH}")
     samples = encode_captions(pairs, tokenizer, MAX_LENGTH)
     validation_samples = encode_captions(
         validation_pairs, tokenizer, MAX_LENGTH
     )
 
-    print("\nBước 3/4: Khởi tạo mô hình")
+    print("\nStep 3/4: Initializing model")
     model = ImageCaptioningModel(
         tokenizer,
         feature_dim=FEATURE_DIM,
@@ -76,7 +77,7 @@ def main() -> None:
         freeze_backbone=True,
     ).to(device)
 
-    print("\nBước 4/4: Huấn luyện")
+    print("\nStep 4/4: Training")
     train(
         model=model,
         samples=samples,
@@ -92,7 +93,7 @@ def main() -> None:
         fine_tune_last_n_stages=FINE_TUNE_LAST_N_STAGES,
         backbone_learning_rate=BACKBONE_LEARNING_RATE,
     )
-    print(f"Huấn luyện hoàn tất. Trọng số được lưu tại: {WEIGHTS_PATH}")
+    print(f"Training complete. Weights saved to: {WEIGHTS_PATH}")
 
 
 if __name__ == "__main__":

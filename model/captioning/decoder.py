@@ -1,7 +1,7 @@
 """
 decoder.py
 
-Decoder dự đoán từ tiếp theo dựa trên image feature và các từ đã có trước đó.
+Decoder dự đoán từ tiếp theo dựa trên image feature và các từ đã có trước đó:
 
     previous word IDs --> WordEmbedding --┐
                                           ├--> FeedForwardNetwork --> Softmax --> next token ID
@@ -25,7 +25,7 @@ from .embedding import WordEmbedding
 class Decoder(nn.Module):
     """
     Args:
-        tokenizer        : tokenizer đã build_vocab (hoặc đã load từ vocab.json).
+        tokenizer        : tokenizer đã build_vocab (hoặc đã load từ tokenizer.json).
         image_feature_dim: số kênh feature map ảnh (= feature_dim của CNNEncoder).
         word_embed_dim   : số chiều embedding của từ.
         hidden_dim       : kích thước trạng thái ẩn của bộ giải mã tuần tự.
@@ -77,9 +77,9 @@ class Decoder(nn.Module):
     ) -> torch.Tensor:
         """
         Args:
-            image_feature_map: (B, C, H, W), spatial features from the image encoder.
+            image_feature_map: (B, C, H, W), feature map không gian từ encoder ảnh.
             prev_word_ids: (B, T) token ID của các từ trước đó (có thể chứa <pad>).
-            return_logits: True để lấy logits (dùng với nn.CrossEntropyLoss khi huấn luyện),
+            return_logits: True để lấy logits (dùng khi huấn luyện với CrossEntropyLoss),
                            False để lấy xác suất sau softmax.
         Returns:
             Logits hoặc xác suất của token kế tiếp, shape (B, vocab_size).
@@ -122,13 +122,13 @@ class Decoder(nn.Module):
         """
         logits = self.forward(image_feature_map, prev_word_ids, return_logits=True)
         logits = logits.clone()
-        logits[:, self.banned_ids] = float("-inf")           # không chọn <pad>, <unk>, <start>
+        logits[:, self.banned_ids] = float("-inf")  # không chọn <pad>, <unk>, <start>
 
         if greedy:
             return logits.argmax(dim=-1)
 
         if temperature <= 0:
-            raise ValueError("temperature phải > 0")
+            raise ValueError("temperature must be > 0")
         logits = logits / temperature
         if top_k is not None:
             k = min(top_k, logits.size(-1))

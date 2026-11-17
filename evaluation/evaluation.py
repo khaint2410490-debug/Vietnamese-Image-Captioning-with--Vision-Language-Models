@@ -1,30 +1,31 @@
 """
 evaluation.py
 
-Sinh caption cho từng ảnh trong tập test và đánh giá dự đoán với các caption tham chiếu.
+Sinh caption cho từng ảnh trong tập test và đánh giá với các caption tham chiếu.
 
 Các chỉ số:
-    - BLEU-1 .. BLEU-4: mức độ trùng khớp giữa caption dự đoán và các caption thật
-      (corpus-level, nhiều caption tham chiếu cho mỗi ảnh, không dùng smoothing).
-      Caption được tách theo âm tiết và dấu câu (cùng cách tách với text_preprocessing.py),
-      nên điểm BLEU ở đây tính trên âm tiết.
-    - Loss và Perplexity: loss Categorical Cross Entropy trung bình trên mỗi từ khi mô hình
-      được cho các từ đúng đứng trước (giống lúc huấn luyện). Perplexity = exp(loss);
-      càng thấp càng tốt.
-    - BLEU-1 .. BLEU-4 cho từng ảnh, cùng caption dự đoán.
-    - Loss và Perplexity tính theo teacher forcing trên các caption tham chiếu.
+    - BLEU-1 .. BLEU-4: mức độ trùng khớp n-gram giữa caption dự đoán và các caption thật
+      (cấp corpus, nhiều caption tham chiếu cho mỗi ảnh, không dùng smoothing;
+      tách từ/dấu câu giống hệt text_preprocessing.py nên điểm BLEU tính trên âm tiết).
+    - Loss và Perplexity: loss Categorical Cross Entropy trung bình theo từ khi chạy
+      teacher forcing trên tập tham chiếu; Perplexity = exp(loss), càng thấp càng tốt.
+    - Lưu thêm BLEU-1 .. BLEU-4 và caption dự đoán của từng ảnh ra CSV.
 
 Chạy từ thư mục gốc dự án: python -m evaluation.evaluation
 """
 
 import csv
 import math
+import sys
 from collections import Counter
 from pathlib import Path
 
 import torch
 
-from generate_caption import load_model
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from evaluation.generate_caption import load_model
 from model.captioning.image_captioning import ImageCaptioningModel
 from preprocessing.text_preprocessing import preprocess_caption
 from training.train import compute_batch_loss, encode_captions, load_captions
@@ -41,10 +42,11 @@ BATCH_SIZE = 8
 FEATURE_DIM = 256
 WORD_EMBEDDING_DIM = 256
 
-# BLEU
+
 def ngrams(tokens: list[str], n: int) -> Counter:
     """Đếm các n-gram (cụm n token liên tiếp) trong một câu."""
     return Counter(tuple(tokens[i : i + n]) for i in range(len(tokens) - n + 1))
+
 
 def corpus_bleu(
     references: list[list[list[str]]],
@@ -57,17 +59,17 @@ def corpus_bleu(
     Args:
         references: với mỗi ảnh, một list các caption tham chiếu (mỗi caption là list token).
         hypotheses: với mỗi ảnh, caption dự đoán (list token).
-        max_n     : n-gram lớn nhất (4 cho BLEU-4).
+        max_n     : bậc n-gram lớn nhất (4 cho BLEU-4).
     Returns:
         {"BLEU-1": ..., "BLEU-2": ..., ...}
     """
-    clipped = [0] * max_n       # số n-gram dự đoán khớp với tham chiếu (đã cắt theo số lần xuất hiện tối đa)
-    total = [0] * max_n         # tổng số n-gram trong các caption dự đoán
+    clipped = [0] * max_n   # số n-gram dự đoán khớp với tham chiếu (đã cắt theo trần tham chiếu)
+    total = [0] * max_n     # tổng số n-gram trong các caption dự đoán
     hyp_len = ref_len = 0
 
     for refs, hyp in zip(references, hypotheses):
         hyp_len += len(hyp)
-        # độ dài tham chiếu gần nhất với độ dài caption dự đoán (hòa thì lấy câu ngắn hơn)
+        # Độ dài tham chiếu gần nhất với độ dài câu dự đoán (hòa thì lấy câu ngắn hơn)
         ref_len += min((abs(len(r) - len(hyp)), len(r)) for r in refs)[1]
 
         for n in range(1, max_n + 1):
@@ -96,7 +98,7 @@ def corpus_bleu(
             )
     return scores
 
-# Loss / Perplexity
+
 @torch.no_grad()
 def compute_loss(
     model: ImageCaptioningModel,
@@ -117,12 +119,13 @@ def compute_loss(
         total_words += batch_words
 
     avg_loss = total_loss / max(total_words, 1)
-    return avg_loss, math.exp(min(avg_loss, 50))         # min(...) tránh tràn số khi loss quá lớn
+    return avg_loss, math.exp(min(avg_loss, 50))  # kẹp số mũ tránh tràn số
 
-# Đánh giá
+
 def tokenize_reference(caption: str) -> list[str]:
-    """Caption thật --> list token (cùng cách tách với lúc huấn luyện, bỏ <start>/<end>)."""
+    """Tách caption thật cùng chuẩn lúc huấn luyện (bỏ <start>/<end>)."""
     return preprocess_caption(caption)[1:-1]
+
 
 def evaluate(
     model: ImageCaptioningModel,
@@ -130,21 +133,21 @@ def evaluate(
     max_length: int = 20,
     batch_size: int = 8,
 ) -> dict:
-    # Gom các caption thật theo ảnh: {đường dẫn ảnh: [caption, ...]}
+    # Gom các caption thật theo từng ảnh: {đường dẫn ảnh: [caption, ...]}
     grouped: dict[str, list[str]] = {}
     for image_path, caption in pairs:
         grouped.setdefault(image_path, []).append(caption)
 
-    # 1. Sinh caption dự đoán cho từng ảnh (chọn từ xác suất cao nhất)
+    # 1. Sinh caption bằng greedy decoding cho từng ảnh
     image_paths = list(grouped)
     hypotheses, references = [], []
     for i, image_path in enumerate(image_paths, 1):
         hypotheses.append(model.generate_caption(image_path, max_length=max_length))
         references.append([tokenize_reference(c) for c in grouped[image_path]])
         if i % 100 == 0:
-            print(f"  đã sinh caption cho {i}/{len(image_paths)} ảnh")
+            print(f"  generated captions for {i}/{len(image_paths)} images")
 
-    # 2. BLEU-1..4 corpus-level và theo từng ảnh
+    # 2. Tính BLEU-1..4 toàn cục và theo từng ảnh
     results: dict = corpus_bleu(references, hypotheses)
     results["per_image"] = [
         {
@@ -158,7 +161,7 @@ def evaluate(
         )
     ]
 
-    # 3. Loss và perplexity
+    # 3. Tính loss và perplexity với teacher forcing
     loss, perplexity = compute_loss(model, pairs, max_length, batch_size)
     results["loss"] = loss
     results["perplexity"] = perplexity
@@ -167,14 +170,15 @@ def evaluate(
 
     return results
 
+
 def print_results(results: dict) -> None:
-    print(f"\nKết quả trên {results['num_images']} ảnh ({results['num_captions']} caption):")
+    print(f"\nEvaluation over {results['num_images']} images ({results['num_captions']} captions):")
     for k in range(1, 5):
         print(f"  BLEU-{k}     : {results[f'BLEU-{k}']:.4f}")
     print(f"  Loss       : {results['loss']:.4f}")
     print(f"  Perplexity : {results['perplexity']:.2f}")
 
-    print("\nĐiểm theo từng ảnh:")
+    print("\nPer-image scores:")
     for item in results["per_image"]:
         print(
             f"  {item['image']}: "
@@ -183,10 +187,11 @@ def print_results(results: dict) -> None:
             f"BLEU-3={item['BLEU-3']:.4f}, "
             f"BLEU-4={item['BLEU-4']:.4f}"
         )
-        print(f"    Caption: {item['prediction'] or '(rỗng)'}")
+        print(f"    Caption: {item['prediction'] or '(empty)'}")
+
 
 def save_per_image_results(results: dict) -> None:
-    """Ghi caption dự đoán và BLEU từng ảnh ra CSV, ghi đè kết quả cũ."""
+    """Ghi caption dự đoán và điểm BLEU từng ảnh ra CSV (ghi đè file cũ)."""
     fieldnames = ["caption", "image", "BLEU-1", "BLEU-2", "BLEU-3", "BLEU-4"]
     with EVALUATION_RESULTS_PATH.open("w", encoding="utf-8-sig", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=fieldnames, quoting=csv.QUOTE_ALL)
@@ -199,13 +204,14 @@ def save_per_image_results(results: dict) -> None:
                     **{f"BLEU-{n}": item[f"BLEU-{n}"] for n in range(1, 5)},
                 }
             )
-    print(f"\nĐã lưu kết quả caption theo từng ảnh vào: {EVALUATION_RESULTS_PATH}")
+    print(f"\nSaved per-image caption results to: {EVALUATION_RESULTS_PATH}")
+
 
 def main() -> None:
-    print(f"Thiết bị: {'cuda' if torch.cuda.is_available() else 'cpu'}")
+    print(f"Device: {'cuda' if torch.cuda.is_available() else 'cpu'}")
     print(f"Checkpoint: {WEIGHTS_PATH}")
-    print(f"Từ điển: {VOCAB_PATH}")
-    print(f"Tập test: {TEST_CAPTIONS_PATH}")
+    print(f"Vocabulary: {VOCAB_PATH}")
+    print(f"Test split: {TEST_CAPTIONS_PATH}")
 
     pairs = load_captions(str(TEST_CAPTIONS_PATH), str(IMAGES_DIR))
     model = load_model(
@@ -217,6 +223,7 @@ def main() -> None:
     results = evaluate(model, pairs, MAX_LENGTH, BATCH_SIZE)
     print_results(results)
     save_per_image_results(results)
+
 
 if __name__ == "__main__":
     main()

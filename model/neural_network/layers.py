@@ -19,6 +19,7 @@ import torch.nn as nn
 
 from .activation import get_activation
 
+
 class DenseLayer(nn.Module):
     """
     Lớp gồm `out_features` neuron, mỗi neuron nhận toàn bộ `in_features` đầu vào.

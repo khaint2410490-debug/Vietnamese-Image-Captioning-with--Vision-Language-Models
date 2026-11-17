@@ -1,35 +1,32 @@
 """
 train.py: Điều khiển quá trình huấn luyện mô hình image captioning.
-Pesuado flow:
+
+Luồng xử lý chính:
     for epoch:
         for (image, caption):
             1. image_feature = CNN(image)
-            2. prediction    = Decoder(image_feature, previous words)
-            3. loss          = CategoricalCrossEntropy(prediction, target word)
+            2. prediction    = Decoder(image_feature, các từ trước đó)
+            3. loss          = CategoricalCrossEntropy(prediction, từ đúng)
             4. gradients     = backpropagation(loss, model)
-            5. optimizer.step(model, gradients)    # w_new = w - lr * gradient
-        validation loss (không cập nhật trọng số)
-        lưu checkpoint nếu validation loss tốt nhất, dừng sớm nếu không cải thiện
+            5. optimizer.step(model, gradients)
+        tính validation loss (không cập nhật trọng số)
+        lưu checkpoint nếu val loss tốt hơn, dừng sớm nếu không cải thiện
 
-Teacher forcing: với một caption có ID [<start>, w1, w2, ..., wn, <end>], mô hình học
-dự đoán từng từ tiếp theo từ các từ đúng đứng trước nó:
+Teacher forcing: với caption [<start>, w1, w2, ..., wn, <end>], mô hình học
+dự đoán từng từ kế tiếp dựa vào các từ đúng đứng trước nó:
     [<start>]            --> w1
     [<start>, w1]        --> w2
     ...
     [<start>, ..., wn]   --> <end>
-Tất cả các bước này của một caption được tính chung trong một lần cập nhật,
-và ảnh chỉ đi qua CNN một lần.
+Tất cả các bước của một caption được gộp chung trong một lần tính, và ảnh chỉ đi qua CNN một lần.
 
-Validation và early stopping:
-    - Tập validation nên tách theo ẢNH (xem split_samples), không tách theo từng
-      cặp (ảnh, caption), vì một ảnh thường có nhiều caption; nếu tách theo cặp thì
-      cùng một ảnh vừa nằm ở train vừa nằm ở validation và val loss sẽ quá lạc quan.
-    - Sau mỗi epoch tính val loss (cùng hàm loss với train). Nếu val loss giảm hơn
-      best_val - min_delta thì lưu trọng số vào weights_path (đây là checkpoint tốt
-      nhất). Nếu không cải thiện `patience` epoch liên tiếp thì dừng.
+Validation & early stopping:
+    - Tách tập validation theo ẢNH (xem split_samples), không tách theo cặp (ảnh, caption),
+      vì một ảnh có nhiều caption và dễ bị rò rỉ dữ liệu nếu tách theo cặp.
+    - Sau mỗi epoch tính val loss theo đúng công thức lúc train. Nếu giảm hơn
+      best_val - min_delta thì lưu vào weights_path; sau `patience` epoch không giảm thì dừng.
 
-Định dạng file caption: CSV có header `image,caption`.
-Ảnh phải là .jpg và nằm trong thư mục ảnh.
+Định dạng CSV đầu vào: header `image,caption`, ảnh .jpg nằm trong images_dir.
 """
 
 import csv
@@ -44,9 +41,9 @@ from preprocessing.image_preprocessing import preprocess_image
 from preprocessing.tokenizer import Tokenizer
 from .loss import categorical_cross_entropy_with_logits
 
-# Dữ liệu
+
 def load_captions(captions_path: str, images_dir: str) -> list[tuple[str, str]]:
-    """Đọc file caption, trả về list (đường dẫn ảnh, caption). Bỏ qua ảnh không tồn tại."""
+    """Đọc file caption, trả về list (đường dẫn ảnh, caption), bỏ qua ảnh không tồn tại."""
     path = Path(captions_path)
     images_dir = Path(images_dir)
 
@@ -62,7 +59,7 @@ def load_captions(captions_path: str, images_dir: str) -> list[tuple[str, str]]:
         with open(path, "r", encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             if reader.fieldnames is None or not {"image", "caption"} <= set(reader.fieldnames):
-                raise ValueError("File caption .csv cần có header với hai cột: image,caption")
+                raise ValueError("Caption CSV file must contain headers: image,caption")
             pairs = [(row["image"].strip(), row["caption"]) for row in reader]
 
     found, missing = [], 0
@@ -73,15 +70,16 @@ def load_captions(captions_path: str, images_dir: str) -> list[tuple[str, str]]:
         else:
             missing += 1
     if missing:
-        print(f"Cảnh báo: bỏ qua {missing} caption vì không tìm thấy ảnh trong {images_dir}")
+        print(f"Warning: skipped {missing} captions whose images are missing in {images_dir}")
     if not found:
-        raise RuntimeError("Không có cặp (ảnh, caption) hợp lệ nào để huấn luyện")
+        raise RuntimeError("No valid (image, caption) pairs available for training")
     return found
+
 
 def encode_captions(
     pairs: list[tuple[str, str]], tokenizer: Tokenizer, max_length: int
 ) -> list[tuple[str, list[int]]]:
-    """Caption (chuỗi) --> list token ID, cắt ngắn nếu dài hơn max_length (vẫn giữ <end>)."""
+    """Chuyển caption sang list token ID, cắt ngắn nếu vượt quá max_length (vẫn giữ <end>)."""
     samples = []
     for image_path, caption in pairs:
         ids = tokenizer.encode(caption)
@@ -90,15 +88,16 @@ def encode_captions(
         samples.append((image_path, ids))
     return samples
 
+
 def split_samples(
     samples: list[tuple[str, list[int]]], val_ratio: float = 0.1, seed: int = 42
 ) -> tuple[list[tuple[str, list[int]]], list[tuple[str, list[int]]]]:
     """
-    Tách samples thành (train, validation) THEO ẢNH: mọi caption của cùng một ảnh
-    nằm cùng một phía. seed cố định để mỗi lần chạy cho cùng một cách tách.
+    Tách samples thành (train, validation) THEO ẢNH để toàn bộ caption của cùng một ảnh
+    luôn nằm chung một phía.
     """
     if not 0.0 < val_ratio < 1.0:
-        raise ValueError("val_ratio phải nằm trong khoảng (0, 1)")
+        raise ValueError("val_ratio must be strictly between 0 and 1")
 
     by_image: dict[str, list] = {}
     for sample in samples:
@@ -109,21 +108,22 @@ def split_samples(
 
     n_val = max(1, round(len(image_paths) * val_ratio))
     if n_val >= len(image_paths):
-        raise ValueError("Không đủ ảnh để tách tập validation")
+        raise ValueError("Insufficient distinct images to split a validation set")
 
     val = [s for p in image_paths[:n_val] for s in by_image[p]]
     train = [s for p in image_paths[n_val:] for s in by_image[p]]
     return train, val
 
+
 def make_batch(batch: list[tuple[str, list[int]]], pad_id: int, device: torch.device):
     """
-    Gom một nhóm (ảnh, caption) thành tensor cho một lần cập nhật.
+    Gom một nhóm (ảnh, caption) thành các tensor teacher forcing.
 
-    Returns:
+    Trả về:
         images    : (B, 3, H, W)
-        row_image : (R,)   chỉ số ảnh mà mỗi dòng huấn luyện thuộc về
-        prev_ids  : (R, L) các từ đứng trước, đệm <pad> cho đủ độ dài L
-        targets   : (R,)   từ đúng cần dự đoán
+        row_image : (R,)   chỉ số ảnh tương ứng của từng dòng dự đoán
+        prev_ids  : (R, L) các token đứng trước, đệm <pad> cho đủ L
+        targets   : (R,)   token đúng cần dự đoán
     """
     images = torch.cat([preprocess_image(path) for path, _ in batch], dim=0)
 
@@ -144,16 +144,15 @@ def make_batch(batch: list[tuple[str, list[int]]], pad_id: int, device: torch.de
         torch.tensor(targets, dtype=torch.long, device=device),
     )
 
-# Huấn luyện
+
 def compute_batch_loss(
     model: ImageCaptioningModel,
     batch: list[tuple[str, list[int]]],
     device: torch.device,
 ) -> tuple[torch.Tensor, int]:
     """
-    Bước 1-3 của flow: ảnh --> CNN --> decoder --> loss. Dùng chung cho train và
-    validation để hai loss được tính theo đúng cùng một cách.
-    Trả về (loss trung bình trên các dòng, số dòng R).
+    Bước 1-3: ảnh --> CNN --> decoder --> loss. Dùng chung cho train và validation.
+    Trả về (loss trung bình theo dòng, số dòng dự đoán R).
     """
     images, row_image, prev_ids, targets = make_batch(batch, model.decoder.pad_id, device)
 
@@ -161,12 +160,13 @@ def compute_batch_loss(
     image_features = model.encode_image(images)
     image_features = image_features[row_image]
 
-    # 2. prediction = Decoder(image_feature, previous words)  (logits, trước softmax)
+    # 2. prediction = Decoder(image_feature, previous words) (logits trước softmax)
     prediction = model.decoder(image_features, prev_ids, return_logits=True)
 
     # 3. loss = Categorical Cross Entropy(prediction, target)
     loss = categorical_cross_entropy_with_logits(prediction, targets)
     return loss, targets.numel()
+
 
 @torch.no_grad()
 def evaluate(
@@ -176,8 +176,7 @@ def evaluate(
     device: torch.device,
 ) -> float:
     """
-    Tính validation loss (không cập nhật trọng số, không shuffle).
-    Loss được trung bình theo số dòng (từ cần dự đoán) nên không phụ thuộc cách chia batch.
+    Tính validation loss (không cập nhật weight, không shuffle), trung bình theo số dòng dự đoán.
     """
     model.eval()
 
@@ -186,13 +185,14 @@ def evaluate(
         batch = samples[start : start + batch_size]
         loss, n_rows = compute_batch_loss(model, batch, device)
         if not torch.isfinite(loss):
-            raise FloatingPointError("Validation loss không hợp lệ (nan/inf).")
+            raise FloatingPointError("Validation loss is invalid (nan/inf).")
         total_loss += loss.item() * n_rows
         total_rows += n_rows
 
     if not total_rows:
-        raise RuntimeError("Không có token hợp lệ để tính validation loss.")
+        raise RuntimeError("No valid tokens available to compute validation loss.")
     return total_loss / total_rows
+
 
 def train_one_epoch(
     model: ImageCaptioningModel,
@@ -202,7 +202,7 @@ def train_one_epoch(
     device: torch.device,
     log_every: int = 50,
 ) -> float:
-    """Chạy một epoch, trả về loss trung bình (theo số dòng, cùng cách tính với evaluate)."""
+    """Chạy một epoch huấn luyện, trả về loss trung bình theo số dòng."""
     model.train()
     samples = samples[:]
     random.shuffle(samples)
@@ -211,12 +211,11 @@ def train_one_epoch(
     for start in range(0, len(samples), batch_size):
         batch = samples[start : start + batch_size]
 
-        # 1-3. image_feature, prediction, loss
         loss, n_rows = compute_batch_loss(model, batch, device)
         if not torch.isfinite(loss):
             print(
-                "Cảnh báo: loss không hợp lệ (nan/inf), bỏ qua batch này. "
-                "Hãy thử giảm learning_rate."
+                "Warning: non-finite loss (nan/inf), skipping batch. "
+                "Consider lowering learning_rate."
             )
             continue
 
@@ -231,8 +230,9 @@ def train_one_epoch(
             print(f"  step {num_steps}: loss = {loss.item():.4f}")
 
     if not total_rows:
-        raise FloatingPointError("Không có batch huấn luyện hợp lệ trong epoch này.")
+        raise FloatingPointError("No valid training batches completed in this epoch.")
     return total_loss / total_rows
+
 
 def train(
     model: ImageCaptioningModel,
@@ -255,42 +255,39 @@ def train(
     Huấn luyện mô hình.
 
     Args:
-        val_samples: tập validation (xem split_samples). None = không validation,
-                     lưu trọng số mỗi epoch như trước.
-        patience   : dừng sớm nếu val loss không cải thiện sau chừng này epoch liên
-                     tiếp (<= 0 để tắt early stopping).
-        min_delta  : val loss phải giảm ít nhất chừng này mới tính là cải thiện.
-        fine_tune_after_epoch: mở khóa các stage cuối sau epoch này; None để giữ đóng băng.
-        fine_tune_last_n_stages: số stage cuối của backbone được fine-tune.
-        backbone_learning_rate: learning rate nhỏ cho backbone khi fine-tune.
+        val_samples            : tập validation (xem split_samples). None = lưu mỗi epoch.
+        patience               : dừng sớm nếu val loss không giảm sau chừng này epoch (<= 0 để tắt).
+        min_delta              : mức giảm tối thiểu của val loss để tính là có cải thiện.
+        fine_tune_after_epoch  : mở khóa các stage cuối sau epoch này; None để giữ đóng băng.
+        fine_tune_last_n_stages: số stage cuối của backbone được mở khóa.
+        backbone_learning_rate : learning rate nhỏ hơn dùng cho phần backbone khi fine-tune.
 
-    Khi có val_samples, weights_path luôn chứa checkpoint có val loss thấp nhất
-    (không nhất thiết là epoch cuối).
+    Khi có val_samples, weights_path giữ checkpoint có val loss thấp nhất.
 
     Returns:
         history: list dict {"epoch", "train_loss", "val_loss"} theo từng epoch.
     """
     if not samples:
-        raise ValueError("Không có mẫu huấn luyện.")
+        raise ValueError("No training samples provided.")
     if batch_size < 1 or epochs < 1 or log_every < 1:
-        raise ValueError("epochs, batch_size và log_every phải lớn hơn 0.")
+        raise ValueError("epochs, batch_size, and log_every must be > 0.")
     if learning_rate <= 0 or (
         backbone_learning_rate is not None and backbone_learning_rate <= 0
     ):
-        raise ValueError("learning_rate và backbone_learning_rate phải lớn hơn 0.")
+        raise ValueError("learning_rate and backbone_learning_rate must be > 0.")
     if min_delta < 0:
-        raise ValueError("min_delta phải >= 0.")
+        raise ValueError("min_delta must be >= 0.")
     if val_samples is not None and not val_samples:
-        raise ValueError("Tập validation được truyền vào nhưng không có mẫu.")
+        raise ValueError("val_samples was provided but is empty.")
     if fine_tune_after_epoch is not None and fine_tune_after_epoch < 0:
-        raise ValueError("fine_tune_after_epoch phải >= 0 hoặc None.")
+        raise ValueError("fine_tune_after_epoch must be >= 0 or None.")
     if (
         fine_tune_after_epoch is not None
         and fine_tune_after_epoch > epochs
     ):
-        raise ValueError("fine_tune_after_epoch không được lớn hơn epochs.")
+        raise ValueError("fine_tune_after_epoch cannot exceed epochs.")
     if fine_tune_last_n_stages < 1:
-        raise ValueError("fine_tune_last_n_stages phải lớn hơn 0.")
+        raise ValueError("fine_tune_last_n_stages must be > 0.")
 
     optimizer = torch.optim.AdamW(
         (parameter for parameter in model.parameters() if parameter.requires_grad),
@@ -344,21 +341,21 @@ def train(
                 f"val loss = {val_loss:.4f}"
             )
         else:
-            print(f"Epoch {epoch}: loss trung bình = {train_loss:.4f}")
+            print(f"Epoch {epoch}: mean train loss = {train_loss:.4f}")
 
         sample_image = random.choice(sample_images)
         caption = model.tokens_to_text(
             model.generate_caption(sample_image, max_length=max_length)
         )
-        print(f"  caption thử cho {Path(sample_image).name}: {caption}")
+        print(f"  sample caption for {Path(sample_image).name}: {caption}")
         history.append(record)
 
         if fine_tune_after_epoch == epoch:
             model.encoder.unfreeze_backbone(fine_tune_last_n_stages)
             new_parameters = add_backbone_parameters()
             print(
-                f"  Đã mở khóa {fine_tune_last_n_stages} stage cuối của encoder "
-                f"({new_parameters} tensors được thêm vào optimizer, "
+                f"  Unfroze last {fine_tune_last_n_stages} encoder stage(s) "
+                f"({new_parameters} tensors added to optimizer, "
                 f"learning rate = {backbone_learning_rate:g})"
             )
 
@@ -369,18 +366,18 @@ def train(
         if val_loss < best_val - min_delta:
             best_val, best_epoch, bad_epochs = val_loss, epoch, 0
             model.save_weights(weights_path)
-            print(f"  val loss cải thiện, đã lưu checkpoint tốt nhất vào {weights_path}")
+            print(f"  val loss improved; saved best checkpoint to {weights_path}")
         else:
             bad_epochs += 1
-            print(f"  val loss không cải thiện ({bad_epochs}/{patience})")
+            print(f"  val loss did not improve ({bad_epochs}/{patience})")
             if patience > 0 and bad_epochs >= patience:
-                print(f"Dừng sớm tại epoch {epoch}.")
+                print(f"Early stopping at epoch {epoch}.")
                 break
 
     if use_val:
         model.load_weights(weights_path)
         print(
-            f"Checkpoint tốt nhất: epoch {best_epoch}, val loss = {best_val:.4f} "
+            f"Best checkpoint: epoch {best_epoch}, val loss = {best_val:.4f} "
             f"({weights_path})"
         )
     return history

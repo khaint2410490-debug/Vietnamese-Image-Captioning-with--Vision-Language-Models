@@ -2,7 +2,7 @@
 tokenizer.py
 
 Chuyển token chữ (kết quả của text_preprocessing.preprocess_caption) thành token ID
-để model xử lý, và ngược lại.
+để model xử lý, và ngược lại:
 
     ["<start>", "một", "con", "chó", "<end>"]  <-->  [2, 4, 5, 6, 3]
 """
@@ -23,13 +23,14 @@ SPECIAL_TOKENS = [PAD_TOKEN, UNK_TOKEN, START_TOKEN, END_TOKEN]
 # Đường dẫn mặc định của file từ điển (dùng khi save()/load() không truyền path)
 DEFAULT_VOCAB_PATH = VOCAB_PATH
 
+
 class Tokenizer:
     def __init__(self):
         self.token_to_id: dict[str, int] = {}
         self.id_to_token: dict[int, str] = {}
         self._init_special_tokens()
 
-    # Vocabulary
+    # Từ điển (Vocabulary)
     def _init_special_tokens(self) -> None:
         self.token_to_id = {tok: idx for idx, tok in enumerate(SPECIAL_TOKENS)}
         self.id_to_token = {idx: tok for tok, idx in self.token_to_id.items()}
@@ -72,7 +73,7 @@ class Tokenizer:
                 self.token_to_id[token] = idx
                 self.id_to_token[idx] = token
 
-    # Encode / Decode
+    # Mã hóa / Giải mã (Encode / Decode)
     def tokens_to_ids(self, tokens: list[str]) -> list[int]:
         """Token chữ -> token ID (token lạ sẽ thành <unk>)."""
         return [self.token_to_id.get(tok, self.unk_id) for tok in tokens]
@@ -94,12 +95,16 @@ class Tokenizer:
 
         if max_length is not None:
             if max_length < 2:
-                raise ValueError("max_length phải >= 2 để chứa <start> và <end>")
+                raise ValueError("max_length must be >= 2 to include <start> and <end>")
             if len(ids) > max_length:
                 ids = ids[: max_length - 1] + [self.end_id]
             else:
                 ids = ids + [self.pad_id] * (max_length - len(ids))
         return ids
+
+    def encode_caption(self, caption, max_length: int | None = None) -> list[int]:
+        """Gọi lại encode(), giữ tên này để NoisyCaptionDataset dùng trực tiếp."""
+        return self.encode(caption, max_length=max_length)
 
     def decode(self, ids: list[int], skip_special_tokens: bool = True) -> list[str]:
         """
@@ -117,7 +122,7 @@ class Tokenizer:
             tokens.append(token)
         return tokens
 
-    # lưu vào đường dẫn, nếu không có thì đường dẫn mặc định luôn
+    # Lưu vào đường dẫn, nếu không truyền path thì dùng đường dẫn mặc định
     def save(self, path: str | None = None) -> None:
         """Lưu từ điển ra file JSON, nếu không truyền path thì dùng đường dẫn mặc định."""
         path = Path(path) if path is not None else DEFAULT_VOCAB_PATH
@@ -130,7 +135,7 @@ class Tokenizer:
         """Tải từ điển đã lưu từ file JSON, nếu không truyền path thì dùng đường dẫn mặc định."""
         path = Path(path) if path is not None else DEFAULT_VOCAB_PATH
         if not path.is_file():
-            raise FileNotFoundError(f"Không tìm thấy file từ điển: {path}")
+            raise FileNotFoundError(f"Vocabulary file not found: {path}")
 
         with open(path, "r", encoding="utf-8") as f:
             token_to_id = json.load(f)

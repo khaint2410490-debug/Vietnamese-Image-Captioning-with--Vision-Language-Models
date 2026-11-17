@@ -18,12 +18,12 @@ trạng thái ẩn h_t của LSTM/GRU được cập nhật tuần tự theo t�
 "a dog chases a cat" và "a cat chases a dog" cho ra hai trạng thái khác nhau.
 Attention cho phép mỗi bước nhìn vào những vùng ảnh liên quan nhất.
 
-Input:
+Đầu vào:
     feature_map         : (B, C, H', W')        - output của CNNEncoder.extract_feature_map
                           (hoặc (B, N, C))
     prev_word_embedding : (B, T, word_embed_dim) - embedding của các từ đầu vào
                           (<bos> w1 ... w_{T-1}), thường là WordEmbedding(captions[:, :-1])
-Output:
+Đầu ra:
     logits/xác suất (B, T, vocab_size) và attention alphas (B, T, N).
 
 Huấn luyện (captions: (B, T+1) gồm <bos> ... <eos> <pad>...):
@@ -110,7 +110,7 @@ class AttentionDecoder(nn.Module):
         super().__init__()
         rnn_type = rnn_type.lower()
         if rnn_type not in ("lstm", "gru"):
-            raise ValueError("rnn_type phải là 'lstm' hoặc 'gru'.")
+            raise ValueError("rnn_type must be 'lstm' or 'gru'.")
 
         self.vocab_size = vocab_size
         self.encoder_dim = encoder_dim
@@ -119,13 +119,13 @@ class AttentionDecoder(nn.Module):
         self.rnn_type = rnn_type
 
         self.attention = SoftAttention(encoder_dim, hidden_dim, attn_dim)
-        # cổng điều chỉnh mức độ dùng context ở mỗi bước
+        # Cổng điều chỉnh mức độ dùng context ở mỗi bước
         self.f_beta = nn.Linear(hidden_dim, encoder_dim)
 
         cell = nn.LSTMCell if rnn_type == "lstm" else nn.GRUCell
         self.rnn = cell(word_embed_dim + encoder_dim, hidden_dim)
 
-        # khởi tạo trạng thái ẩn từ trung bình các vùng ảnh
+        # Khởi tạo trạng thái ẩn từ trung bình các vùng ảnh
         self.init_h = nn.Linear(encoder_dim, hidden_dim)
         self.init_c = nn.Linear(encoder_dim, hidden_dim) if rnn_type == "lstm" else None
 
@@ -142,8 +142,8 @@ class AttentionDecoder(nn.Module):
             feature_map = feature_map.flatten(2).transpose(1, 2)
         if feature_map.dim() != 3 or feature_map.size(-1) != self.encoder_dim:
             raise ValueError(
-                f"Feature map phải có {self.encoder_dim} kênh, "
-                f"nhận được shape {tuple(feature_map.shape)}"
+                f"Feature map must have {self.encoder_dim} channels, "
+                f"got shape {tuple(feature_map.shape)}"
             )
         return feature_map
 
@@ -189,8 +189,7 @@ class AttentionDecoder(nn.Module):
             feature_map        : (B, C, H', W') hoặc (B, N, C).
             prev_word_embedding: (B, T, word_embed_dim), embedding của <bos> w1 ... w_{T-1}.
             return_logits      : True để trả về logits (dùng khi huấn luyện với
-                                 nn.CrossEntropyLoss, vì loss này đã tự gồm softmax);
-                                 False để trả về xác suất.
+                                 CrossEntropyLoss); False để trả về xác suất.
         Returns:
             (logits hoặc xác suất) (B, T, vocab_size) và alphas (B, T, N).
             Token <pad> ở cuối câu không ảnh hưởng các bước trước nó; hãy bỏ chúng
@@ -198,13 +197,13 @@ class AttentionDecoder(nn.Module):
         """
         if prev_word_embedding.dim() != 3:
             raise ValueError(
-                "prev_word_embedding phải có shape (B, T, E), "
-                f"nhận được {tuple(prev_word_embedding.shape)}"
+                "prev_word_embedding must have shape (B, T, E), "
+                f"got {tuple(prev_word_embedding.shape)}"
             )
         if prev_word_embedding.size(-1) != self.word_embed_dim:
             raise ValueError(
-                f"Embedding của từ phải có {self.word_embed_dim} chiều, "
-                f"nhận được {prev_word_embedding.size(-1)}"
+                f"Word embedding must have {self.word_embed_dim} dims, "
+                f"got {prev_word_embedding.size(-1)}"
             )
 
         feats = self._flatten(feature_map)

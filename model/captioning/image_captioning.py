@@ -4,13 +4,13 @@ image_captioning.py
 Ghép toàn bộ các module thành một mô hình sinh caption cho ảnh:
 
     Image --> CNN Encoder --> Image feature ──┐
-                                              ├--> Decoder --> Softmax --> từ tiếp theo
+                                              ├--> Decoder --> Softmax --> next word
     Caption token --> Word Embedding ─────────┘                               |
               ^                                                               |
-              └──────────── thêm từ vừa dự đoán, lặp lại đến khi gặp <end> ───┘
+              └──────────── append predicted word, repeat until <end> ────────┘
 
-Input : ảnh (đường dẫn .jpg hoặc tensor) + caption token (từ bắt đầu, có thể bỏ trống)
-Output: predicted caption (list token hoặc chuỗi văn bản)
+Đầu vào : ảnh (đường dẫn .jpg hoặc tensor) + caption token (từ bắt đầu, có thể bỏ trống)
+Đầu ra  : predicted caption (list token hoặc chuỗi văn bản)
 """
 
 import os
@@ -27,17 +27,19 @@ from preprocessing.tokenizer import Tokenizer
 from ..cnn.cnn_encoder import CNNEncoder
 from .decoder import Decoder
 
+
 class ImageCaptioningModel(nn.Module):
     """
     Args:
-        tokenizer     : tokenizer đã build_vocab (hoặc load từ vocab.json).
-        feature_dim   : độ dài image feature vector.
-        word_embed_dim: số chiều embedding của từ.
-        backbone     : mô hình torchvision dùng làm encoder pretrained.
-        pretrained   : nạp trọng số ImageNet cho backbone.
+        tokenizer      : tokenizer đã build_vocab (hoặc load từ tokenizer.json).
+        feature_dim    : số chiều kênh của spatial image feature map.
+        word_embed_dim : số chiều embedding của từ.
+        backbone       : mô hình torchvision dùng làm encoder pretrained.
+        pretrained     : nạp trọng số ImageNet cho backbone.
         freeze_backbone: đóng băng backbone lúc khởi tạo để huấn luyện head trước.
         hidden_dim, attn_dim: kích thước trạng thái ẩn và attention của decoder.
-        dropout       : tỉ lệ dropout dùng trong encoder head và decoder.
+        dropout        : tỉ lệ dropout dùng trong encoder head và decoder.
+        keep_bn_eval   : giữ BatchNorm của backbone ở chế độ eval.
     """
 
     def __init__(
@@ -74,7 +76,7 @@ class ImageCaptioningModel(nn.Module):
 
     @classmethod
     def from_vocab_file(cls, vocab_path: str, **kwargs) -> "ImageCaptioningModel":
-        """Tạo mô hình từ file từ điển đã lưu (vocab.json)."""
+        """Tạo mô hình từ file từ điển đã lưu (tokenizer.json)."""
         return cls(Tokenizer.load(vocab_path), **kwargs)
 
     # ------------------------------------------------------------------ #
@@ -87,7 +89,7 @@ class ImageCaptioningModel(nn.Module):
         return_logits: bool = False,
     ) -> torch.Tensor:
         """
-        image tensor (B, 3, H, W) + token ID các từ trước đó (B, T)
+        Image tensor (B, 3, H, W) + token ID các từ trước đó (B, T)
         --> phân phối xác suất (hoặc logits) của từ tiếp theo (B, vocab_size).
         """
         image_feature_map = self.encoder.forward_spatial(image)
@@ -96,7 +98,7 @@ class ImageCaptioningModel(nn.Module):
         )
 
     def encode_image(self, image: torch.Tensor) -> torch.Tensor:
-        """Encode images as spatial features for the attention-based decoder."""
+        """Trích xuất feature map không gian làm đầu vào cho decoder có attention."""
         return self.encoder.forward_spatial(image)
 
     # ------------------------------------------------------------------ #
@@ -115,17 +117,15 @@ class ImageCaptioningModel(nn.Module):
                 image = image.unsqueeze(0)
             if image.dim() != 4:
                 raise ValueError(
-                    f"Tensor ảnh phải có shape (3, H, W) hoặc (1, 3, H, W), nhận được {tuple(image.shape)}"
+                    f"Image tensor must have shape (3, H, W) or (1, 3, H, W), got {tuple(image.shape)}"
                 )
             return image
-        raise TypeError("image phải là đường dẫn file .jpg hoặc torch.Tensor")
+        raise TypeError("image must be a .jpg file path or torch.Tensor")
 
     def _prepare_prefix(self, caption_tokens) -> list[int]:
         """
         Chuyển caption token đầu vào thành list token ID bắt đầu bằng <start>
         và không kết thúc bằng <end> (để mô hình viết tiếp được).
-
-        caption_tokens có thể là: None, chuỗi văn bản, list token chữ, hoặc list token ID.
         """
         tk = self.tokenizer
         if caption_tokens is None:
@@ -173,7 +173,7 @@ class ImageCaptioningModel(nn.Module):
         device = self._device()
         image_tensor = self._prepare_image(image).to(device)
         if image_tensor.size(0) != 1:
-            raise ValueError("generate_caption chỉ nhận một ảnh mỗi lần")
+            raise ValueError("generate_caption processes one image at a time")
 
         ids = self._prepare_prefix(caption_tokens)
 
@@ -194,7 +194,7 @@ class ImageCaptioningModel(nn.Module):
                     probs = self.decoder(image_feature_map, prev)
                     word = self.tokenizer.ids_to_tokens([next_id])[0]
                     print(
-                        f"  từ thứ {len(ids)}: {word!r}  "
+                        f"  step {len(ids)}: {word!r}  "
                         f"(p = {probs[0, next_id].item():.3f})"
                     )
                 ids.append(next_id)
@@ -240,3 +240,6 @@ class ImageCaptioningModel(nn.Module):
     def load_weights(self, path: str) -> None:
         state = torch.load(path, map_location=self._device())
         self.load_state_dict(state)
+
+
+ImageCaptioning = ImageCaptioningModel

@@ -20,17 +20,17 @@ Cách dùng khuyến nghị gồm 2 giai đoạn:
 
 Ví dụ shape với ảnh 224 x 224 x 3 (resnet18):
 
-    Input            : (B,   3, 224, 224)
-    Feature map      : (B, 512,   7,   7)   <-- extract_feature_map
+    Input              : (B,   3, 224, 224)
+    Feature map        : (B, 512,   7,   7)   <-- extract_feature_map
     Global avg pooling : (B, 512)
-    Linear projection  : (B, feature_dim)   <-- image feature vector
+    Linear projection  : (B, feature_dim)     <-- image feature vector
 
 LƯU Ý: backbone pretrained được huấn luyện với ảnh đã chuẩn hóa theo ImageNet
 (mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]). Hãy chuẩn hóa như vậy
 trong image_preprocessing.preprocess_image, hoặc đặt normalize_input=True ở đây
 (khi đó input phải là ảnh trong khoảng [0, 1], chưa chuẩn hóa).
 
-Input là output của image_preprocessing.preprocess_image: tensor (B, 3, H, W).
+Đầu vào là output của image_preprocessing.preprocess_image: tensor (B, 3, H, W).
 """
 
 from typing import Optional
@@ -43,10 +43,10 @@ IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
-# dùng backbone pretrained để encode ảnh
+# Dùng backbone pretrained để encode ảnh
 class CNNEncoder(nn.Module):
     """
-    Encoder CNN pretrained: chuyển image tensor thành image feature vector.
+    Encoder CNN pretrained: chuyển image tensor thành image feature vector hoặc feature map.
 
     Args:
         backbone        : tên model torchvision, ví dụ "resnet18", "resnet34",
@@ -79,7 +79,7 @@ class CNNEncoder(nn.Module):
         self.keep_bn_eval = keep_bn_eval
 
         stages, out_channels = self._build_backbone(backbone, pretrained)
-        # backbone chia thành các stage theo thứ tự từ nông đến sâu,
+        # Backbone chia thành các stage theo thứ tự từ nông đến sâu
         # để có thể mở khóa dần từ stage cuối (xem unfreeze_backbone)
         self.backbone = nn.Sequential(*stages)
         self.feature_map_channels = out_channels
@@ -101,7 +101,6 @@ class CNNEncoder(nn.Module):
         if freeze_backbone:
             self.freeze_backbone()
 
-    # build
     @staticmethod
     def _build_backbone(name: str, pretrained: bool):
         """Trả về (list các stage, số kênh của feature map cuối)."""
@@ -118,11 +117,10 @@ class CNNEncoder(nn.Module):
             out_channels = model.classifier[-1].in_features
         else:
             raise ValueError(
-                f"Backbone '{name}' chưa được hỗ trợ. Dùng resnet* hoặc efficientnet*."
+                f"Backbone '{name}' is not supported. Use resnet* or efficientnet*."
             )
         return stages, out_channels
 
-    # freeze / tune
     def freeze_backbone(self) -> None:
         """Đóng băng toàn bộ backbone; chỉ projection (và dropout) được train."""
         for p in self.backbone.parameters():
@@ -139,13 +137,13 @@ class CNNEncoder(nn.Module):
         """
         stages = list(self.backbone.children())
         if last_n_stages is not None and last_n_stages < 1:
-            raise ValueError("last_n_stages phải lớn hơn 0 hoặc là None.")
+            raise ValueError("last_n_stages must be > 0 or None.")
         n = len(stages) if last_n_stages is None else min(last_n_stages, len(stages))
         for i, stage in enumerate(stages):
             trainable = i >= len(stages) - n
             for p in stage.parameters():
                 p.requires_grad = trainable
-        self.train(self.training)  # áp lại chế độ train/eval cho từng stage
+        self.train(self.training)  # Áp lại chế độ train/eval cho từng stage
 
     def train(self, mode: bool = True):
         """Stage nào còn bị đóng băng (hoặc keep_bn_eval) thì giữ BatchNorm ở eval."""
@@ -174,7 +172,7 @@ class CNNEncoder(nn.Module):
         backbone_params = [p for p in self.backbone.parameters() if p.requires_grad]
         if backbone_params:
             if backbone_lr is None:
-                raise ValueError("Backbone đang được mở khóa: hãy truyền backbone_lr.")
+                raise ValueError("Backbone is unfrozen: please pass backbone_lr.")
             groups.append(
                 {"params": backbone_params, "lr": backbone_lr, "weight_decay": weight_decay}
             )
@@ -182,15 +180,14 @@ class CNNEncoder(nn.Module):
         groups.append({"params": head_params, "lr": head_lr, "weight_decay": weight_decay})
         return groups
 
-    # forward
     def _check_input(self, x: torch.Tensor) -> None:
         if x.dim() != 4:
             raise ValueError(
-                f"Input phải có shape (B, C, H, W), nhận được {tuple(x.shape)}"
+                f"Input must have shape (B, C, H, W), got {tuple(x.shape)}"
             )
         if x.size(1) != self.in_channels:
             raise ValueError(
-                f"Input phải có {self.in_channels} kênh, nhận được {x.size(1)}"
+                f"Input must have {self.in_channels} channels, got {x.size(1)}"
             )
 
     def extract_feature_map(self, x: torch.Tensor) -> torch.Tensor:
@@ -205,7 +202,7 @@ class CNNEncoder(nn.Module):
         return self.backbone(x)
 
     def forward_spatial(self, x: torch.Tensor) -> torch.Tensor:
-        """Return a projected feature map (B, feature_dim, H', W') for attention."""
+        """Trả về feature map đã chiếu (B, feature_dim, H', W') cho Spatial Attention."""
         feature_map = self.extract_feature_map(x)
         batch_size, channels, height, width = feature_map.shape
         locations = feature_map.flatten(2).transpose(1, 2)

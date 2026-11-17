@@ -1,6 +1,6 @@
 """
-Xác định, với mỗi weight của mạng: nếu weight thay đổi một chút thì loss thay đổi thế nào.
-Xác định bằng Gradient
+Xác định, với mỗi weight của mạng: nếu weight thay đổi một chút thì loss thay đổi thế nào
+bằng Gradient.
 
 Cách đọc gradient của một weight w:
     gradient = +0.3 : tăng w một chút thì loss TĂNG (xấu đi)  --> nên GIẢM w
@@ -15,30 +15,32 @@ Backpropagation: áp dụng quy tắc chuỗi (chain rule) đi ngược từ los
 Khi chạy xuôi (forward), PyTorch ghi lại mọi phép tính đã dùng để tạo ra loss. Khi gọi
 loss.backward(), nó đi ngược qua từng phép tính đó và nhân các đạo hàm cục bộ lại với nhau
 để ra gradient của từng weight. File này KHÔNG thay đổi weight, chỉ trả về gradient;
-việc cập nhật weight là của optimizer.py.
+việc cập nhật weight nằm ở optimizer.py.
 """
 
 import torch
 import torch.nn as nn
+
 
 def zero_gradients(network: nn.Module) -> None:
     """Xóa gradient cũ (PyTorch cộng dồn gradient qua các lần backward)."""
     for param in network.parameters():
         param.grad = None
 
+
 def backpropagation(loss: torch.Tensor, network: nn.Module) -> dict[str, torch.Tensor]:
     """
     Args:
-        loss   : loss (scalar) được tính từ output của network.
+        loss   : loss (scalar) tính từ đầu ra của network.
         network: mô hình đã dùng để tính ra loss.
     Returns:
-        dict {tên weight: gradient}, gradient có cùng shape với weight tương ứng.
+        dict {tên weight: gradient}, mỗi gradient cùng shape với weight tương ứng.
         Ví dụ: {"decoder.network.output_layer.weight": tensor(...), ...}
     """
     if loss.dim() != 0:
-        raise ValueError(f"loss phải là scalar, nhận được shape {tuple(loss.shape)}")
+        raise ValueError(f"loss must be a scalar, got shape {tuple(loss.shape)}")
     if not loss.requires_grad:
-        raise ValueError("loss không gắn với network (không có đồ thị tính toán để lan truyền ngược)")
+        raise ValueError("loss is detached from network (no autograd graph for backpropagation)")
 
     zero_gradients(network)
     loss.backward()
@@ -51,6 +53,7 @@ def backpropagation(loss: torch.Tensor, network: nn.Module) -> dict[str, torch.T
         gradients[name] = grad.detach().clone()
     return gradients
 
+
 def weight_direction(gradients: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
     """
     Hướng nên thay đổi của từng weight để giảm loss:
@@ -58,7 +61,8 @@ def weight_direction(gradients: dict[str, torch.Tensor]) -> dict[str, torch.Tens
     """
     return {name: -torch.sign(grad) for name, grad in gradients.items()}
 
+
 def gradient_norm(gradients: dict[str, torch.Tensor]) -> float:
-    """Độ lớn (chuẩn L2) của toàn bộ gradient, dùng để theo dõi quá trình huấn luyện."""
+    """Độ lớn (chuẩn L2) của toàn bộ gradient để theo dõi quá trình train."""
     total = sum(float((grad ** 2).sum()) for grad in gradients.values())
     return total ** 0.5

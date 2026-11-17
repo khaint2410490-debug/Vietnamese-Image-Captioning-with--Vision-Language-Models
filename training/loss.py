@@ -2,21 +2,23 @@
 Categorical Cross Entropy (CCE): đo mô hình dự đoán sai đến mức nào.
 
 Ví dụ: ảnh con chó, từ đúng là "chó"
-    p("chó") = 0.72  -->  L = -ln(0.72) ≈ 0.33   (loss nhỏ, dự đoán tốt)
-    p("chó") = 0.03  -->  L = -ln(0.03) ≈ 3.51   (loss lớn, dự đoán tệ)
+    p("chó") = 0.72  -->  L = -ln(0.72) ~= 0.33   (loss nhỏ, dự đoán tốt)
+    p("chó") = 0.03  -->  L = -ln(0.03) ~= 3.51   (loss lớn, dự đoán tệ)
 
-Loss của cả batch là trung bình loss của từng mẫu.
+Loss của cả batch là trung bình loss của từng mẫu hợp lệ.
 """
 
 import torch
 
+
 def _check_inputs(scores: torch.Tensor, targets: torch.Tensor) -> None:
     if scores.dim() != 2:
-        raise ValueError(f"Cần tensor (B, vocab_size), nhận được {tuple(scores.shape)}")
+        raise ValueError(f"Expected 2D tensor (B, vocab_size), got {tuple(scores.shape)}")
     if targets.dim() != 1 or targets.size(0) != scores.size(0):
         raise ValueError(
-            f"targets phải có shape ({scores.size(0)},), nhận được {tuple(targets.shape)}"
+            f"targets must have shape ({scores.size(0)},), got {tuple(targets.shape)}"
         )
+
 
 def _split_ignored(targets: torch.Tensor, ignore_index: int | None):
     """Trả về (targets an toàn để gather, mask các mẫu hợp lệ hoặc None)."""
@@ -25,10 +27,12 @@ def _split_ignored(targets: torch.Tensor, ignore_index: int | None):
     ignored = targets == ignore_index
     return targets.masked_fill(ignored, 0), (~ignored).float()
 
+
 def _mean_loss(loss_each: torch.Tensor, valid: torch.Tensor | None) -> torch.Tensor:
     if valid is None:
         return loss_each.mean()
     return (loss_each * valid).sum() / valid.sum().clamp(min=1.0)
+
 
 def categorical_cross_entropy(
     probs: torch.Tensor,
@@ -52,6 +56,7 @@ def categorical_cross_entropy(
     p_correct = probs.gather(1, safe_targets.unsqueeze(1)).squeeze(1)    # (B,)
     loss_each = -torch.log(p_correct.clamp(min=eps))
     return _mean_loss(loss_each, valid)
+
 
 def categorical_cross_entropy_with_logits(
     logits: torch.Tensor,

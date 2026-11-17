@@ -1,7 +1,7 @@
 """
 activation.py
 
-Các hàm kích hoạt (activation function) dùng trong neural network.
+Các hàm kích hoạt (activation function) dùng trong neural network:
 
     sigmoid(z) = 1 / (1 + e^-z)            -> ép giá trị về khoảng (0, 1)
     relu(z)    = max(0, z)                 -> giữ phần dương, bỏ phần âm
@@ -11,13 +11,16 @@ Các hàm kích hoạt (activation function) dùng trong neural network.
 
 import torch
 
+
 def sigmoid(z: torch.Tensor) -> torch.Tensor:
     """Sigmoid: ép mỗi phần tử về khoảng (0, 1)."""
     return 1.0 / (1.0 + torch.exp(-z))
 
+
 def relu(z: torch.Tensor) -> torch.Tensor:
     """ReLU: max(0, z)."""
     return torch.clamp(z, min=0.0)
+
 
 def softmax(z: torch.Tensor, dim: int = -1) -> torch.Tensor:
     """
@@ -29,9 +32,11 @@ def softmax(z: torch.Tensor, dim: int = -1) -> torch.Tensor:
     exp = torch.exp(shifted)
     return exp / exp.sum(dim=dim, keepdim=True)
 
+
 def linear(z: torch.Tensor) -> torch.Tensor:
     """Không kích hoạt (identity): dùng khi cần giữ nguyên tổng tuyến tính z."""
     return z
+
 
 _ACTIVATIONS = {
     "sigmoid": sigmoid,
@@ -40,11 +45,12 @@ _ACTIVATIONS = {
     "linear": linear,
 }
 
+
 def get_activation(name: str):
     """Lấy hàm kích hoạt theo tên: 'sigmoid', 'relu', 'softmax' hoặc 'linear'."""
     key = name.lower()
     if key not in _ACTIVATIONS:
         raise ValueError(
-            f"Activation '{name}' không được hỗ trợ. Chọn một trong: {list(_ACTIVATIONS)}"
+            f"Unsupported activation '{name}'. Choose one of: {list(_ACTIVATIONS)}"
         )
     return _ACTIVATIONS[key]

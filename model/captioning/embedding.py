@@ -1,8 +1,8 @@
 """
 embedding.py
 
-Chuyển token ID (do tokenizer.py tạo ra và lưu trong vocab.json) thành vector
-embedding để decoder.py sử dụng.
+Chuyển token ID (do tokenizer.py tạo ra và lưu trong tokenizer.json) thành vector
+embedding để decoder.py sử dụng:
 
     [2, 4, 5]  -->  3 vector, mỗi vector có `embed_dim` chiều
     (B, T)     -->  (B, T, embed_dim)
@@ -42,7 +42,6 @@ class WordEmbedding(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=pad_id)
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
 
-    # Tạo embedding từ tokenizer / từ điển đã lưu
     @classmethod
     def from_tokenizer(
         cls, tokenizer: Tokenizer, embed_dim: int, dropout: float = 0.0
@@ -59,10 +58,9 @@ class WordEmbedding(nn.Module):
     def from_vocab_file(
         cls, vocab_path: str, embed_dim: int, dropout: float = 0.0
     ) -> "WordEmbedding":
-        """Tạo embedding từ file từ điển đã lưu (vocab.json)."""
+        """Tạo embedding từ file từ điển đã lưu (tokenizer.json)."""
         return cls.from_tokenizer(Tokenizer.load(vocab_path), embed_dim, dropout)
 
-    # Forward
     def forward(self, word_ids: torch.Tensor) -> torch.Tensor:
         """Token ID (B, T) --> embedding (B, T, embed_dim)."""
         word_ids = word_ids.long()
@@ -70,8 +68,8 @@ class WordEmbedding(nn.Module):
             word_ids.min() < 0 or word_ids.max() >= self.vocab_size
         ):
             raise ValueError(
-                f"Token ID nằm ngoài khoảng [0, {self.vocab_size - 1}]. "
-                "Hãy kiểm tra tokenizer và từ điển đang dùng."
+                f"Token ID out of valid range [0, {self.vocab_size - 1}]. "
+                "Check tokenizer and vocabulary compatibility."
             )
         return self.dropout(self.embedding(word_ids))
 
