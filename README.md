@@ -1,318 +1,166 @@
-# Vietnamese Image Captioning with Vision-Language Models
+# Vietnamese Noisy Image Captioning
 
-## Mục đích
+Dự án nghiên cứu sinh chú thích tiếng Việt cho ảnh bị nhiễu Gaussian. Hệ thống
+dùng CNN ResNet-18 để mã hóa ảnh và decoder Attention + LSTM để sinh caption.
+Ngoài mô hình captioning nền huấn luyện trên ảnh sạch, dự án có hai cách xử lý
+ảnh nhiễu để so sánh.
 
-Dự án xây dựng mô hình sinh chú thích tiếng Việt cho ảnh. Mô hình nhận một ảnh,
-trích xuất đặc trưng thị giác bằng CNN pretrained, sau đó sinh caption từng token
-một bằng decoder có attention.
+## Các pipeline
 
-Kiến trúc hiện tại không dùng
-mô hình vision-language đóng gói sẵn như CLIP. Bên dưới có là pipeline image captioning
-tự huấn luyện, ghép CNN encoder với bộ giải mã ngôn ngữ.
+1. **Baseline:** ảnh sạch → mô hình captioning đã huấn luyện trên ảnh sạch.
+2. **DnCNN (hai giai đoạn):** ảnh nhiễu → DnCNN dự đoán phần nhiễu → ảnh đã
+   khử nhiễu → mô hình captioning baseline.
+3. **Fine-tune end-to-end:** ảnh nhiễu → mô hình captioning baseline được
+   fine-tune trực tiếp với ảnh nhiễu; không có bước khử nhiễu riêng.
 
-Database sử dụng: https://www.kaggle.com/datasets/adityajn105/flickr8k
+Baseline là điểm khởi đầu cho phương án fine-tune end-to-end. Checkpoint của
+captioning và vocabulary phải cùng một lần huấn luyện vì các ID token trong
+vocabulary gắn với embedding của mô hình.
 
-Kết quả test evaluation: data/processed/evaluation.cvs
+## Yêu cầu và cài đặt
 
-model sau train: data/processed/caption_weight.pt
+- Python hỗ trợ bởi phiên bản PyTorch/torchvision bạn cài.
+- Cài PyTorch và torchvision phù hợp CPU hoặc CUDA của máy.
+- Các thư viện Python còn lại được khai báo trong `requirements.txt`:
 
-## Chức năng chính
+```powershell
+python -m pip install -r requirements.txt
+```
 
-- Tiền xử lý ảnh và văn bản caption.
-- Chuyển caption thành chuỗi token ID và lưu từ điển.
-- Chia dữ liệu train, validation và test theo ảnh để tránh một ảnh xuất hiện ở
-  nhiều tập.
-- Huấn luyện CNN encoder và decoder attention bằng loss dự đoán token tiếp theo.
-- Fine-tune một số stage cuối của backbone, đánh giá validation loss, early
-  stopping và lưu checkpoint tốt nhất.
-- Tải checkpoint cùng từ điển để sinh caption cho một ảnh.
+`scikit-image` được dùng để tính PSNR/SSIM trong đánh giá DnCNN; thiếu thư viện
+này sẽ khiến import module đánh giá hoặc huấn luyện DnCNN thất bại.
 
-## Cấu trúc và thứ tự pipeline
+## Dữ liệu và artifact
 
-Thứ tự xử lý chính khi chạy `main.py`:
+- `data/raw/captions.csv`: CSV có header `image,caption`, chứa caption tiếng
+  Việt; một ảnh có thể có nhiều caption.
+- `data/raw/Images/`: ảnh gốc, tên file khớp với cột `image`.
+- `split.py` tạo `data/processed/train.csv`, `validation.csv` và `test.csv`,
+  chia theo ảnh để caption của cùng ảnh không rơi vào nhiều tập.
+- `preprocessing/noise_generator.py` tạo ảnh nhiễu ở
+  `data/processed/NoisyImages_sigma{level}/` và file ánh xạ
+  `data/processed/noisy_image_map.csv`. Nhiễu được cộng trên pixel RGB [0,255],
+  sau đó ảnh được lưu JPEG.
+- `data/vocabulary/tokenizer.json`: vocabulary dùng chung với mô hình captioning.
+- `data/processed/caption_weights.pt`: checkpoint baseline.
+- `data/processed/dncnn_weights.pt`: checkpoint DnCNN.
+- `data/processed/end2end_caption_weights_sigma{level}.pt`: checkpoint
+  end-to-end theo mức nhiễu.
 
-1. `split.py` chia `data/raw/captions.csv` thành train, validation và test.
-2. `training/train.py` đọc các tập train/validation.
-3. `preprocessing/tokenizer.py` xây từ điển từ caption train; sau đó caption được
-   mã hóa thành token ID.
-4. `model/captioning/image_captioning.py` kết nối CNN encoder với decoder.
-5. `training/train.py` huấn luyện, tính validation loss và lưu checkpoint.
-6. `evaluation/generate_caption.py` có thể tải từ điển và checkpoint để suy luận
-   trên ảnh mới.
+Các checkpoint và dữ liệu sinh ra cần được giữ cùng vocabulary, split và mức
+nhiễu tương ứng. Không dùng tập test để huấn luyện hay chọn checkpoint.
 
-Luồng sinh caption là:
+## Quy trình huấn luyện
 
-`Ảnh -> tiền xử lý -> CNN encoder -> feature map không gian -> attention + LSTM ->
-token kế tiếp -> caption tiếng Việt`
+Chạy các lệnh từ thư mục gốc repository. Cần có dữ liệu ảnh và caption trước.
 
-## Vai trò của từng file
+### 1. Huấn luyện baseline trên ảnh sạch
 
-### Dữ liệu và artifact
+```powershell
+python main.py
+```
 
-- `data/raw/captions.csv`: dữ liệu caption tiếng Việt dùng làm đầu vào mặc định.
-  Header là `image,caption`; một ảnh có thể có nhiều caption.
-- `data/raw/captions.txt`: dữ liệu caption nguồn tiếng Anh để đối chiếu; pipeline
-  `main.py` hiện không đọc file này.
-- `data/raw/Images/`: ảnh đầu vào, tham chiếu bằng tên file trong cột `image`.
-- `data/processed/train.csv`, `validation.csv`, `test.csv`: các split được
-  `split.py` sinh ra. Các file có thể bị Git ignore.
-- `data/vocabulary/tokenizer.json`: từ điển token-ID được `main.py` xây từ train
-  split và lưu lại.
-- `data/processed/caption_weights.pt`: weights của checkpoint được `train.py`
-  lưu. Khi validation được bật, đây là checkpoint có validation loss tốt nhất.
+Lệnh này tạo lại các split theo ảnh, xây vocabulary từ tập train và huấn luyện
+mô hình captioning baseline. Các tham số như epoch, batch size và learning rate
+được cấu hình ở đầu `main.py`.
 
-Checkpoint và tokenizer phải thuộc cùng một lần huấn luyện/cùng một từ điển; nếu
-khác nhau, kích thước hoặc ID token có thể không khớp khi nạp model.
+### 2. Sinh ảnh nhiễu
 
-### `preprocessing/`
+Chạy riêng cho mỗi mức nhiễu cần thực nghiệm:
 
-#### `preprocessing/image_preprocessing.py`
+```powershell
+python -m preprocessing.noise_generator --noise_level 25
+```
 
-- **Vai trò:** Đọc và chuẩn hóa ảnh trước khi đưa vào encoder.
-- **Input:** Đường dẫn tới ảnh `.jpg`/`.jpeg`.
-- **Output:** Tensor ảnh RGB đã resize và chuẩn hóa ImageNet, shape
-  `(1, 3, 224, 224)` theo mặc định.
-- **Pipeline:** Kiểm tra đường dẫn và phần mở rộng -> mở ảnh bằng Pillow -> đổi
-  sang RGB -> resize -> chuyển pixel sang `float32` và chuẩn hóa theo mean/std
-  ImageNet -> đổi layout sang `(C, H, W)` và thêm chiều batch.
-- **Kiến thức:** Xử lý ảnh, chuẩn hóa dữ liệu, NumPy, Pillow và tensor PyTorch.
+Các mức hỗ trợ được dự định dùng là `15`, `25`, `50` hoặc `random`. Lệnh tạo
+ảnh nhiễu cùng tên file với ảnh sạch trong `data/processed/NoisyImages_sigma25/`.
 
-#### `preprocessing/text_preprocessing.py`
+### 3. Huấn luyện DnCNN (phương án khử nhiễu)
 
-- **Vai trò:** Chuẩn hóa và tách caption thành các token nhất quán.
-- **Input:** Caption dạng chuỗi.
-- **Output:** Danh sách token chữ thường, có `<start>` ở đầu và `<end>` ở cuối.
-- **Pipeline:** Chuẩn hóa Unicode NFC -> chuyển chữ thường -> gộp khoảng trắng ->
-  tách từ và dấu câu -> thêm token bắt đầu/kết thúc.
-- **Kiến thức:** tokenization và token đặc biệt.
+```powershell
+python -m training.train_dncnn --noise_level 25
+```
 
-#### `preprocessing/tokenizer.py`
+DnCNN học dự đoán residual `noisy - clean`, dùng loss bình phương residual,
+AdamW, scheduler và early stopping theo PSNR validation. Ảnh đầu vào và mục
+tiêu DnCNN được biểu diễn trong miền [0,1]. Mức nhiễu cố định dùng mặc định
+17 lớp; `random` dùng 20 lớp.
 
-- **Vai trò:** Xây dựng từ điển, mã hóa caption thành ID, giải mã ID thành token,
-  và lưu/nạp từ điển.
-- **Input:** Caption hoặc token, ngưỡng tần suất từ, danh sách token ID, hoặc file
-  JSON từ điển.
-- **Output:** Mapping token-ID, chuỗi ID, danh sách token, hoặc file
-  `data/vocabulary/tokenizer.json`.
-- **Pipeline:** Khi tạo từ điển, áp dụng `preprocess_caption`, đếm tần suất, giữ
-  token đủ ngưỡng và gán ID. Khi mã hóa, từ ngoài từ điển thành `<unk>`; có thể
-  cắt chuỗi và giữ `<end>` hoặc đệm bằng `<pad>`.
-- **Kiến thức:** token-to-ID, tần suất token, padding và serialization
-  JSON.
+### 4. Fine-tune captioning end-to-end
 
-### `model/cnn/`
+```powershell
+python -m training.train_end2end --noise_level 25
+```
 
-#### `model/cnn/__init__.py`
+Lệnh nạp baseline và vocabulary đã tạo ở bước 1, rồi fine-tune trên ảnh nhiễu
+đã tạo ở bước 2. Mặc định mở khóa hai stage cuối của ResNet-18 ngay từ epoch
+đầu; learning rate của encoder nhỏ hơn learning rate decoder. Có thể chạy thử
+với ít mẫu:
 
-#### `model/cnn/cnn_encoder.py`
+```powershell
+python -m training.train_end2end --noise_level 25 --limit 64 --epochs 1
+```
 
-- **Vai trò:** Dùng backbone CNN của `torchvision` để trích xuất đặc trưng ảnh.
-  Mặc định mô hình tổng sử dụng ResNet-18 pretrained.
-- **Input:** Tensor ảnh `(B, 3, H, W)` đã chuẩn hóa.
-- **Output:** `extract_feature_map` trả feature map backbone; `forward_spatial`
-  chiếu từng vị trí không gian thành feature map `(B, feature_dim, H', W')` cho
-  attention; `forward` trả vector ảnh đã pooling.
-- **Pipeline:** Chọn backbone ResNet hoặc EfficientNet được hỗ trợ -> chạy ảnh
-  qua các stage CNN -> lấy feature map -> chiếu đặc trưng bằng lớp tuyến tính.
-  Backbone có thể bị đóng băng ban đầu và mở khóa các stage cuối để fine-tune.
-- **Kiến thức:** CNN pretrained, transfer learning, feature map không gian,
-  global average pooling, projection layer, BatchNorm và fine-tuning.
+Đầu ra mặc định là
+`data/processed/end2end_caption_weights_sigma25.pt`. Muốn chạy lại ở mức nhiễu
+khác, lặp lại bước sinh dữ liệu và huấn luyện với cùng `--noise_level`.
 
-### `model/neural_network/`
+## Benchmark
 
-#### `model/neural_network/activation.py`
+`evaluation/benchmark.v2.py` chạy inference thực tế trên các ảnh trong
+`data/processed/test.csv`, đối chiếu nhiều caption tham chiếu trên mỗi ảnh và
+lưu từng ảnh ra `data/processed/benchmark_comparison.csv`. Đo lường:
 
-- **Vai trò:** Cung cấp các hàm activation và tra cứu activation theo tên.
-- **Input:** Tensor logits/giá trị tuyến tính; tên activation khi gọi
-  `get_activation`.
-- **Output:** Tensor sau sigmoid, ReLU, softmax hoặc identity.
-- **Pipeline:** `DenseLayer` lấy activation từ `get_activation`; decoder dùng
-  softmax khi cần chuyển logits thành xác suất.
-- **Kiến thức:** Hàm kích hoạt, phân phối xác suất, ổn định số học khi tính
-  softmax.
+- BLEU-1..4 theo cách tách token tiếng Việt trong dự án.
+- Thời gian inference cho baseline, pipeline DnCNN và end-to-end.
+- PSNR/SSIM giữa ảnh sạch và ảnh do DnCNN khôi phục.
 
-#### `model/neural_network/layers.py`
+Sinh dữ liệu nhiễu và huấn luyện DnCNN trước khi benchmark:
 
-- **Vai trò:** Cài đặt lớp fully connected `DenseLayer`.
-- **Input:** Tensor đầu vào `(B, in_features)`.
-- **Output:** Tensor `(B, out_features)` sau phép tuyến tính và activation.
-- **Pipeline:** Tính `x @ weight + bias` -> áp dụng activation. Khởi tạo weight
-  bằng He cho ReLU hoặc Xavier cho activation khác.
-- **Kiến thức:** Dense layer, tham số học được, phép nhân ma trận, bias và khởi
-  tạo trọng số.
+```powershell
+python -m preprocessing.noise_generator --noise_level 25
+python -m training.train_dncnn --noise_level 25
+python evaluation/benchmark.v2.py --noise_level 25
+```
 
-#### `model/neural_network/feedforward.py`
+Benchmark tìm checkpoint end-to-end tại
+`data/processed/end2end_caption_weights_sigma25.pt`. Nếu chưa có checkpoint,
+Pipeline 2 được ghi để trống và được thông báo là bỏ qua; truyền
+`--end2end_weights <đường_dẫn>` để chỉ định checkpoint khác. Ví dụ chạy nhanh
+trên một ảnh:
 
-- **Vai trò:** Cài đặt Bahdanau-style spatial attention và decoder tuần tự dựa
-  trên LSTMCell hoặc GRUCell.
-- **Input:** Feature map ảnh và embedding của các từ trước đó.
-- **Output:** Logits/xác suất token ở từng bước và trọng số attention trên các
-  vùng ảnh.
-- **Pipeline:** Làm phẳng feature map thành các vị trí ảnh -> tính attention
-  theo trạng thái ẩn hiện tại -> ghép context ảnh với embedding từ -> cập nhật
-  trạng thái LSTM/GRU -> dự đoán token. Khi sinh, bắt đầu bằng token BOS và lặp
-  đến EOS hoặc giới hạn độ dài.
-- **Kiến thức:** Attention, RNN tuần tự, LSTM/GRU, teacher forcing, greedy
-  decoding và regularization attention.
+```powershell
+python evaluation/benchmark.v2.py --noise_level 25 --limit 1
+```
 
-### `model/captioning/`
+Có thể tùy chỉnh đường dẫn bằng `--captions`, `--images-dir`, `--noisy-dir`,
+`--baseline-weights`, `--dncnn-weights`, `--end2end-weights`, `--vocab-path`
+và `--output`; các cờ đường dẫn cũ dùng dấu gạch dưới vẫn được hỗ trợ. Chọn
+thiết bị với `--device auto|cpu|cuda`. `--limit` phải là số nguyên dương,
+`--max-length` phải từ 2 trở lên, còn `--noise-level` nhận `15`, `25`, `50`
+hoặc `random`. Nếu thiếu ảnh sạch hoặc ảnh nhiễu trong tập test, benchmark dừng
+và báo các tên ảnh bị thiếu thay vì âm thầm loại bỏ mẫu.
 
-#### `model/captioning/embedding.py`
+PSNR/SSIM nhận ảnh dạng [0,1] hoặc [0,255] và chọn `data_range` tương ứng.
+`evaluation/benchmark.v1.py` là bản benchmark phác thảo; dùng `benchmark.v2.py`
+cho kết quả inference trên mô hình và dữ liệu thực.
 
-- **Vai trò:** Ánh xạ token ID thành vector embedding có thể học được.
-- **Input:** Tensor token ID `(B, T)` và cấu hình kích thước từ điển/embedding.
-- **Output:** Tensor embedding `(B, T, embed_dim)`; hàm `mask` tạo mask phân biệt
-  token thật với `<pad>`.
-- **Pipeline:** Khởi tạo bảng `nn.Embedding` theo kích thước tokenizer -> kiểm tra
-  token ID nằm trong miền hợp lệ -> tra embedding và áp dụng dropout nếu được cấu
-  hình.
-- **Kiến thức:** Word embedding, padding index, dropout và tensor embedding.
+## Cấu trúc mã nguồn
 
-#### `model/captioning/decoder.py`
+| Thư mục/tệp | Vai trò |
+| --- | --- |
+| `preprocessing/noise_generator.py` | Tạo ảnh nhiễu Gaussian có seed và map file |
+| `preprocessing/dataset.py` | Nạp cặp ảnh sạch/nhiễu, residual và caption |
+| `preprocessing/image_preprocessing.py` | Resize và chuẩn hóa ảnh cho CNN |
+| `model/denoising/dncnn.py` | DnCNN dự đoán nhiễu residual |
+| `model/cnn/cnn_encoder.py` | ResNet/encoder trích xuất đặc trưng ảnh |
+| `model/captioning/` | Embedding, spatial attention, LSTM và sinh caption |
+| `training/train.py` | Vòng lặp train captioning, validation và checkpoint |
+| `training/train_dncnn.py` | Huấn luyện và lưu DnCNN |
+| `training/train_end2end.py` | Fine-tune captioning trên ảnh nhiễu |
+| `evaluation/denoise_metrics.py` | PSNR/SSIM cho tensor trong [0,1] |
+| `evaluation/benchmark.v2.py` | So sánh inference ba pipeline trên tập test |
+| `project_paths.py` | Đường dẫn artifact dùng chung trong dự án |
 
-- **Vai trò:** Kết hợp WordEmbedding với AttentionDecoder; cung cấp dự đoán
-  phân phối token khi train và chọn token tiếp theo khi inference.
-- **Input:** Feature map ảnh, các token trước đó và tùy chọn greedy/temperature/
-  top-k khi sinh.
-- **Output:** Logits hoặc xác suất token kế tiếp; hoặc ID token được chọn.
-- **Pipeline:** Mã hóa token ID thành embedding -> gọi decoder attention tuần tự
-  -> lấy logits tại token cuối cùng không phải padding. Khi sinh, không cho phép
-  chọn `<pad>`, `<unk>` và `<start>`.
-- **Kiến thức:** Decoder ngôn ngữ, phân phối softmax, mask padding, greedy
-  decoding và sampling.
-
-#### `model/captioning/image_captioning.py`
-
-- **Vai trò:** Mô hình tổng hợp điều phối CNN encoder và decoder, dùng chung cho
-  huấn luyện, sinh caption, lưu và nạp trọng số.
-- **Input:** Tokenizer và cấu hình mô hình; khi forward nhận tensor ảnh cùng
-  token ID; khi generate nhận đường dẫn ảnh hoặc tensor.
-- **Output:** Logits/xác suất từ tiếp theo; caption dạng danh sách token hoặc văn
-  bản; checkpoint state dictionary.
-- **Pipeline:** Ảnh -> CNN encoder spatial feature map -> decoder attention;
-  trong inference lặp dự đoán token cho đến EOS/độ dài tối đa. Checkpoint được
-  ghi qua file tạm rồi thay thế đường dẫn đích.
-- **Kiến thức:** `torch.nn.Module`, composition của mô hình, inference không
-  gradient, trạng thái train/eval, greedy/sampling và serialization checkpoint.
-
-### `evaluation/`
-
-#### `evaluation/generate_caption.py`
-
-- **Vai trò:** Nạp từ điển và checkpoint tương ứng, rồi cung cấp hàm sinh caption
-  cho ảnh mới. File không dịch caption; ngôn ngữ đầu ra phụ thuộc dữ liệu train.
-- **Chạy từ terminal:** `python evaluation/generate_caption.py <đường_dẫn_ảnh.jpg>`
-  (thêm dấu nháy nếu đường dẫn có khoảng trắng); caption được in ra terminal.
-- **Input:** Đường dẫn checkpoint, từ điển, cấu hình kiến trúc và đường dẫn ảnh.
-- **Output:** Mô hình ở chế độ eval hoặc caption dạng chuỗi.
-- **Pipeline:** Kiểm tra file vocabulary/checkpoint -> kiểm tra checkpoint có cũ
-  hơn dữ liệu/từ điển không -> tạo kiến trúc khớp cấu hình train -> nạp weights
-  -> gọi `generate_caption_text`.
-- **Kiến thức:** Inference, checkpoint compatibility, greedy decoding và
-  temperature/top-k sampling.
-
-#### `evaluation/evaluation.py`
-
-- **Vai trò:** Tự nạp checkpoint và tokenizer theo đường dẫn dự án, sinh caption
-  cho từng ảnh trong `data/processed/test.csv`, rồi chấm BLEU-1..4 tổng thể và
-  theo từng ảnh; đồng thời tính loss và perplexity trên caption tham chiếu.
-- **Chạy:** Từ thư mục gốc dự án, chạy `python -m evaluation.evaluation`.
-- **Input:** `data/processed/test.csv`, ảnh trong `data/raw/Images`,
-  `data/vocabulary/tokenizer.json` và `data/processed/caption_weights.pt`.
-- **Output:** BLEU tổng thể, loss/perplexity và BLEU-1..4 cùng caption dự đoán
-  cho từng ảnh, in ra terminal; CSV kết quả tại
-  `data/processed/evaluation.csv` (được ghi đè sau mỗi lần chạy).
-- **Kiến thức:** Corpus BLEU, sinh caption tự hồi quy, teacher forcing,
-  cross-entropy và perplexity.
-
-### `training/`
-
-#### `training/train.py`
-
-- **Vai trò:** Đọc caption, mã hóa dữ liệu, tạo batch, tính loss, huấn luyện,
-  validation, early stopping và lưu checkpoint.
-- **Input:** File CSV/JSON caption, thư mục ảnh, tokenizer, cấu hình train, mẫu
-  train/validation đã mã hóa.
-- **Output:** Lịch sử loss theo epoch, log quá trình huấn luyện và file weights
-  tại `data/processed/caption_weights.pt` theo cấu hình mặc định.
-- **Pipeline:** Đọc và kiểm tra dữ liệu -> tạo batch ảnh/token mục tiêu -> encode
-  ảnh và dự đoán token kế tiếp bằng teacher forcing -> tính categorical
-  cross-entropy -> gọi `loss.backward()` và `AdamW.step()` -> tính validation
-  loss -> lưu checkpoint tốt nhất và dừng sớm nếu cần. Sau mỗi epoch, sinh
-  caption thử cho một ảnh ngẫu nhiên trong tập train.
-- **Kiến thức:** Mini-batch training, teacher forcing, cross-entropy,
-  backpropagation/autograd, AdamW, fine-tuning, validation loss, early stopping
-  và checkpointing.
-- **Lưu ý:** Mã hiện tại dùng `loss.backward()` và `torch.optim.AdamW`; không gọi
-  hai utility `training/backpropagation.py` và `training/optimizer.py`.
-
-#### `training/loss.py`
-
-- **Vai trò:** Tính categorical cross-entropy từ xác suất hoặc logits, hỗ trợ
-  bỏ qua token padding.
-- **Input:** Tensor scores `(B, vocab_size)` và token ID đúng `(B,)`.
-- **Output:** Scalar loss trung bình.
-- **Pipeline:** Kiểm tra shape -> xử lý `ignore_index` nếu có -> lấy log-probability
-  của token mục tiêu -> tính trung bình trên token hợp lệ.
-- **Kiến thức:** Cross-entropy, log-softmax/logsumexp và numerical stability.
-
-#### `training/backpropagation.py`
-
-- **Vai trò:** Utility tách riêng để gọi autograd và trả gradient dưới dạng
-  dictionary; có thêm helper xóa gradient, lấy hướng gradient và tính norm.
-- **Input:** Scalar loss và `nn.Module`.
-- **Output:** Dictionary tên tham số -> tensor gradient; hoặc hướng/norm gradient.
-- **Pipeline:** Kiểm tra loss -> xóa gradient cũ -> gọi `loss.backward()` -> sao
-  chép gradient của tham số có thể train.
-- **Kiến thức:** Chain rule, automatic differentiation và gradient descent.
-- **Lưu ý:** Không được `training/train.py` sử dụng trong pipeline hiện tại.
-
-#### `training/optimizer.py`
-
-- **Vai trò:** Utility Gradient Descent thủ công để cập nhật tham số từ
-  dictionary gradient.
-- **Input:** Weight, gradient, learning rate; hoặc network và dictionary gradient.
-- **Output:** Tensor weight mới hoặc cập nhật tham số network tại chỗ.
-- **Pipeline:** Tính `weight - learning_rate * gradient` cho từng tham số tương
-  ứng.
-- **Kiến thức:** Gradient Descent và cập nhật tham số.
-- **Lưu ý:** Không được `training/train.py` sử dụng; pipeline đang dùng AdamW của
-  PyTorch.
-
-### Các file ở thư mục gốc
-
-#### `main.py`
-
-- **Vai trò:** Điểm điều khiển chính cho pipeline huấn luyện.
-- **Input:** Các hằng cấu hình trong file, `data/raw/captions.csv`, thư mục ảnh
-  và các module của dự án.
-- **Output:** Các CSV train/validation/test, file tokenizer, checkpoint model
-  và log huấn luyện. Test split được tạo nhưng hiện không dùng trong train.
-- **Pipeline:** Đặt seed và chọn CPU/GPU -> chia dữ liệu -> nạp train/validation
-  -> xây/lưu tokenizer -> mã hóa caption -> tạo mô hình pretrained -> gọi `train`.
-  Khi chạy trực tiếp file, khối `if __name__ == "__main__"` gọi `main()`.
-- **Kiến thức:** Điều phối pipeline, cấu hình thí nghiệm, seed ngẫu nhiên, chọn
-  thiết bị và transfer learning.
-
-#### `project_paths.py`
-
-- **Vai trò:** Tập trung các đường dẫn mặc định của project.
-- **Input:** Vị trí của file Python này trên filesystem.
-- **Output:** Các hằng `Path` như `CAPTIONS_PATH`, `IMAGES_DIR`,
-  `PROCESSED_DATA_DIR`, `VOCAB_PATH` và `WEIGHTS_PATH`.
-- **Pipeline:** Xác định project root từ `__file__`, sau đó ghép đường dẫn cho
-  data/raw, data/processed, vocabulary và weights.
-- **Kiến thức:** `pathlib.Path` và đường dẫn tương đối theo vị trí dự án.
-
-#### `split.py`
-
-- **Vai trò:** Chia dữ liệu caption thành train/validation/test theo ảnh.
-- **Input:** CSV có hai cột `image,caption`, thư mục ảnh tùy chọn, tỉ lệ chia và
-  seed.
-- **Output:** Ba file `train.csv`, `validation.csv`, `test.csv` trong
-  `data/processed/` theo cấu hình mặc định.
-- **Pipeline:** Đọc CSV và gom caption theo ảnh -> bỏ qua ảnh thiếu nếu có cung
-  cấp thư mục ảnh -> xáo trộn danh sách ảnh theo seed -> ghi toàn bộ caption của
-  mỗi ảnh vào duy nhất một split.
-- **Kiến thức:** Chia tập dữ liệu, kiểm soát random seed, chống data leakage và
-  CSV I/O.
+`main.py` hiện huấn luyện baseline trên ảnh sạch; các lệnh huấn luyện DnCNN,
+fine-tune ảnh nhiễu và benchmark được chạy riêng như hướng dẫn ở trên.
