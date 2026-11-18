@@ -52,7 +52,7 @@ class MainWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(train_dncnn.call_args.kwargs["noisy_images_dir"], noisy_dir)
         self.assertEqual(train_end2end.call_args.kwargs["noisy_dir"], noisy_dir)
-        self.assertEqual(train_end2end.call_args.kwargs["init_weights"], main.WEIGHTS_PATH)
+        self.assertNotIn("init_weights", train_end2end.call_args.kwargs)
 
 
 if __name__ == "__main__":

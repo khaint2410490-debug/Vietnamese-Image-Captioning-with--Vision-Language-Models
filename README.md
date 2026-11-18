@@ -10,12 +10,14 @@ Ngoài mô hình captioning nền huấn luyện trên ảnh sạch, dự án c�
 1. **Baseline:** ảnh sạch → mô hình captioning đã huấn luyện trên ảnh sạch.
 2. **DnCNN (hai giai đoạn):** ảnh nhiễu → DnCNN dự đoán phần nhiễu → ảnh đã
    khử nhiễu → mô hình captioning baseline.
-3. **Fine-tune end-to-end:** ảnh nhiễu → mô hình captioning baseline được
-   fine-tune trực tiếp với ảnh nhiễu; không có bước khử nhiễu riêng.
+3. **Captioner train trực tiếp trên ảnh nhiễu:** ảnh nhiễu → mô hình
+   CNN + decoder được huấn luyện trực tiếp trên ảnh nhiễu; không có bước khử
+   nhiễu riêng.
 
-Baseline là điểm khởi đầu cho phương án fine-tune end-to-end. Checkpoint của
-captioning và vocabulary phải cùng một lần huấn luyện vì các ID token trong
-vocabulary gắn với embedding của mô hình.
+Baseline được dùng cho phương án DnCNN. Phương án captioner trên ảnh nhiễu
+khởi tạo decoder mới và dùng CNN pretrained trên ImageNet; nó không nạp
+checkpoint captioning baseline. Cả hai captioner dùng cùng vocabulary để so
+sánh trên cùng không gian token.
 
 ## Yêu cầu và cài đặt
 
@@ -62,15 +64,15 @@ python main.py
 `main.py` thực hiện tuần tự toàn bộ quy trình:
 
 1. Chia dữ liệu theo ảnh, xây vocabulary và train baseline captioning trên ảnh
-   sạch. Baseline này khởi tạo cho phương án 2 và làm captioner sau DnCNN ở
-   phương án 1.
+   sạch. Baseline làm captioner sau DnCNN ở phương án 1 và là mốc đánh giá.
 2. Tạo ảnh nhiễu Gaussian tại
    `data/processed/NoisyImages_sigma{NOISE_LEVEL}/`.
 3. **Phương án 1:** train DnCNN trên cặp ảnh sạch/nhiễu, lưu
    `data/processed/dncnn_weights.pt`. Khi inference, ảnh nhiễu qua DnCNN rồi
    captioner baseline sinh caption.
-4. **Phương án 2:** nạp baseline và fine-tune trực tiếp trên ảnh nhiễu, mở khóa
-   các stage cuối ResNet-18; checkpoint được lưu tại
+4. **Phương án 2:** khởi tạo captioner mới, dùng CNN pretrained trên ImageNet,
+   rồi train trực tiếp trên ảnh nhiễu (mở khóa các stage cuối ResNet-18);
+   checkpoint được lưu tại
    `data/processed/end2end_caption_weights_sigma{NOISE_LEVEL}.pt`.
 
 Mức nhiễu và thông số train được đặt ở đầu `main.py`: `NOISE_LEVEL`,
@@ -115,7 +117,7 @@ pipeline.
 | `model/captioning/` | Embedding, spatial attention, LSTM và sinh caption |
 | `training/train.py` | Vòng lặp train captioning, validation và checkpoint |
 | `training/train_dncnn.py` | Huấn luyện và lưu DnCNN |
-| `training/train_end2end.py` | Fine-tune captioning trên ảnh nhiễu |
+| `training/train_end2end.py` | Train captioner trực tiếp trên ảnh nhiễu |
 | `evaluation/denoise_metrics.py` | PSNR/SSIM cho tensor trong [0,1] |
 | `evaluation/benchmark.v2.py` | So sánh inference ba pipeline trên tập test |
 | `project_paths.py` | Đường dẫn artifact dùng chung trong dự án |

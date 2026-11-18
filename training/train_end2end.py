@@ -12,7 +12,6 @@ from project_paths import (
     PROCESSED_DATA_DIR,
     TRAIN_CAPTIONS_PATH,
     VOCAB_PATH,
-    WEIGHTS_PATH,
 )
 from training.train import encode_captions, load_captions, train
 
@@ -23,7 +22,6 @@ def train_end2end(
     noise_level: int | float | str = 25,
     noisy_dir: Path | None = None,
     save_path: Path | None = None,
-    init_weights: Path = WEIGHTS_PATH,
     vocab_path: Path = VOCAB_PATH,
     train_csv: Path = TRAIN_CAPTIONS_PATH,
     val_csv: Path = VALIDATION_CAPTIONS_PATH,
@@ -51,8 +49,6 @@ def train_end2end(
         raise ValueError("limit phải lớn hơn 0.")
     if max_length < 2:
         raise ValueError("max_length phải lớn hơn hoặc bằng 2.")
-    if not init_weights.is_file():
-        raise FileNotFoundError(f"Không tìm thấy checkpoint baseline: {init_weights}")
     if not vocab_path.is_file():
         raise FileNotFoundError(f"Không tìm thấy vocabulary: {vocab_path}")
 
@@ -61,7 +57,7 @@ def train_end2end(
     device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[End-to-end] Thiết bị: {device}")
     print(f"[End-to-end] Ảnh nhiễu: {noisy_dir}")
-    print(f"[End-to-end] Checkpoint đầu vào: {init_weights}")
+    print("[End-to-end] Khởi tạo captioner mới với CNN pretrained trên ImageNet")
     print(f"[End-to-end] Checkpoint đầu ra: {save_path}")
 
     tokenizer = Tokenizer.load(str(vocab_path))
@@ -81,10 +77,9 @@ def train_end2end(
         tokenizer,
         feature_dim=256,
         word_embed_dim=256,
-        pretrained=False,
+        pretrained=True,
         freeze_backbone=True,
     ).to(device)
-    model.load_weights(str(init_weights))
 
     history = train(
         model=model,

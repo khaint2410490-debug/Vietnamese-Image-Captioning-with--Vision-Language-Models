@@ -132,11 +132,10 @@ def train_noisy_approaches(device: torch.device) -> None:
         device=str(device),
     )
 
-    print("\n[Phương án 2] Fine-tune captioning end-to-end trên ảnh nhiễu")
+    print("\n[Phương án 2] Train captioner trực tiếp trên ảnh nhiễu")
     train_end2end(
         noise_level=NOISE_LEVEL,
         noisy_dir=noisy_dir,
-        init_weights=WEIGHTS_PATH,
         vocab_path=VOCAB_PATH,
         train_csv=train_csv,
         val_csv=validation_csv,
