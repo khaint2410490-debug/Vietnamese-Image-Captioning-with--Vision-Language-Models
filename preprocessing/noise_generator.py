@@ -33,10 +33,14 @@ def generate_noisy_dataset(
 
     unique_images = []
     seen = set()
-    with open(captions_csv, mode="r", encoding="utf-8") as f:
+    with open(captions_csv, mode="r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
+        if reader.fieldnames is None or not {"image", "caption"} <= set(reader.fieldnames):
+            raise ValueError(
+                "File caption cần có header với hai cột: image,caption"
+            )
         for row in reader:
-            img_name = row["image"].strip()
+            img_name = (row.get("image") or "").strip()
             if img_name and img_name not in seen:
                 seen.add(img_name)
                 unique_images.append(img_name)
