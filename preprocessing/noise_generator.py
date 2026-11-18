@@ -68,16 +68,3 @@ def generate_noisy_dataset(
 
     print(f"[NoiseGenerator] Đã tạo {len(map_rows)} ảnh nhiễu tại: {output_dir}")
     return output_dir
-
-
-if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="Sinh tập ảnh nhiễu AWGN")
-    parser.add_argument("--noise_level", type=str, default="25", help="15, 25, 50 hoặc random")
-    parser.add_argument("--seed", type=int, default=42)
-    args = parser.parse_args()
-
-    level = "random" if args.noise_level.lower() == "random" else float(args.noise_level)
-    if isinstance(level, float) and level.is_integer():
-        level = int(level)
-    generate_noisy_dataset(noise_level=level, seed=args.seed)

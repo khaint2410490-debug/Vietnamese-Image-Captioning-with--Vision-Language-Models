@@ -1,6 +1,5 @@
-import contextlib
-import io
 import importlib.util
+import inspect
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,46 +14,25 @@ SPEC.loader.exec_module(benchmark)
 
 
 class BenchmarkMetricsTests(unittest.TestCase):
-    def test_parser_accepts_hyphenated_and_legacy_options(self):
-        args = benchmark.get_parser().parse_args(
-            [
-                "--noise-level",
-                "random",
-                "--images_dir",
-                "images with spaces",
-                "--limit",
-                "2",
-                "--max_length",
-                "24",
-                "--device",
-                "cpu",
-            ]
+    def test_benchmark_entrypoints_take_no_arguments(self):
+        self.assertEqual(
+            list(inspect.signature(benchmark.run_benchmark).parameters), []
         )
 
-        self.assertEqual(args.noise_level, "random")
-        self.assertEqual(args.images_dir, Path("images with spaces"))
-        self.assertEqual(args.limit, 2)
-        self.assertEqual(args.max_length, 24)
-        self.assertEqual(args.device, "cpu")
-
-    def test_parser_rejects_invalid_numeric_and_noise_arguments(self):
-        parser = benchmark.get_parser()
-        invalid_arguments = (
-            ["--limit", "0"],
-            ["--max-length", "1"],
-            ["--noise-level", "35"],
+        module_path = MODULE_PATH.with_name("benchmark.v1.py")
+        spec = importlib.util.spec_from_file_location("benchmark_v1", module_path)
+        benchmark_v1 = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(benchmark_v1)
+        self.assertEqual(
+            list(inspect.signature(benchmark_v1.run_inference_benchmark).parameters),
+            [],
         )
-        for arguments in invalid_arguments:
-            with self.subTest(arguments=arguments):
-                with contextlib.redirect_stderr(io.StringIO()):
-                    with self.assertRaises(SystemExit):
-                        parser.parse_args(arguments)
 
     def test_run_benchmark_rejects_invalid_arguments_before_io(self):
         with self.assertRaisesRegex(ValueError, "noise_level"):
-            benchmark.run_benchmark(noise_level="35")
+            benchmark._run_benchmark(noise_level="35")
         with self.assertRaisesRegex(ValueError, "max_length"):
-            benchmark.run_benchmark(max_length=1)
+            benchmark._run_benchmark(max_length=1)
 
     def test_run_benchmark_prevents_output_inside_input_directories(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
@@ -65,7 +43,7 @@ class BenchmarkMetricsTests(unittest.TestCase):
             noisy_dir.mkdir()
 
             with self.assertRaisesRegex(ValueError, "thư mục ảnh"):
-                benchmark.run_benchmark(
+                benchmark._run_benchmark(
                     images_dir=images_dir,
                     noisy_dir=noisy_dir,
                     output_path=images_dir / "result.csv",

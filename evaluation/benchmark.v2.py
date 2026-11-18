@@ -1,6 +1,5 @@
 """Compare clean baseline, DnCNN denoising, and end-to-end captioning."""
 
-import argparse
 import csv
 import sys
 import time
@@ -27,6 +26,11 @@ from project_paths import (
     VOCAB_PATH,
     WEIGHTS_PATH,
 )
+
+NOISE_LEVEL = "25"
+LIMIT = None
+MAX_LENGTH = 20
+DEVICE = None
 
 
 def calculate_bleu_scores(
@@ -86,14 +90,20 @@ def calculate_image_quality(
 
     data_range = _image_data_range(clean, denoised)
     channel_axis = -1 if clean.ndim == 3 else None
-    psnr_value = peak_signal_noise_ratio(clean, denoised, data_range=data_range)
-    ssim_value = structural_similarity(
-        clean,
-        denoised,
-        data_range=data_range,
-        channel_axis=channel_axis,
+    psnr_value = np.asarray(
+        peak_signal_noise_ratio(clean, denoised, data_range=data_range)
     )
-    return round(float(psnr_value), 2), round(float(ssim_value), 4)
+    ssim_value = np.asarray(
+        structural_similarity(
+            clean,
+            denoised,
+            data_range=data_range,
+            channel_axis=channel_axis,
+        )
+    )
+    if psnr_value.ndim != 0 or ssim_value.ndim != 0:
+        raise ValueError("Chỉ chấp nhận kết quả metric dạng scalar.")
+    return round(float(psnr_value.item()), 2), round(float(ssim_value.item()), 4)
 
 
 def _read_test_samples(
@@ -117,7 +127,7 @@ def _read_test_samples(
         raise RuntimeError(f"Không có caption hợp lệ trong {captions_path}.")
     if limit is not None:
         if limit < 1:
-            raise ValueError("--limit phải lớn hơn 0.")
+            raise ValueError("LIMIT phải lớn hơn 0.")
         grouped = dict(list(grouped.items())[:limit])
 
     samples = []
@@ -154,7 +164,7 @@ def _load_dncnn(weights_path: Path, device: torch.device) -> DnCNN:
     return model
 
 
-def run_benchmark(
+def _run_benchmark(
     captions_path: Path = TEST_CAPTIONS_PATH,
     images_dir: Path = IMAGES_DIR,
     noisy_dir: Path | None = None,
@@ -230,8 +240,7 @@ def run_benchmark(
     if not noisy_dir.is_dir():
         raise FileNotFoundError(
             f"Không tìm thấy thư mục ảnh nhiễu: {noisy_dir}. "
-            f"Hãy chạy `python -m preprocessing.noise_generator "
-            f"--noise_level {noise_level}` trước."
+            "Hãy chạy main.py để tạo dữ liệu nhiễu trước."
         )
     if requested_end2end and not end2end_weights.is_file():
         raise FileNotFoundError(f"Checkpoint end-to-end không tồn tại: {end2end_weights}")
@@ -243,14 +252,14 @@ def run_benchmark(
     print(f"Thiết bị: {device}; số ảnh: {len(samples)}")
     baseline = load_model(
         weights_path=baseline_weights,
-        vocab_path=vocab_path,
+        vocab_path=str(vocab_path),
         device=device,
     )
     denoiser = _load_dncnn(dncnn_weights, device)
     end2end = (
         load_model(
             weights_path=end2end_weights,
-            vocab_path=vocab_path,
+            vocab_path=str(vocab_path),
             device=device,
         )
         if end2end_weights.is_file()
@@ -259,7 +268,7 @@ def run_benchmark(
     if end2end is None:
         print(
             f"Bỏ qua Pipeline 2: chưa có checkpoint {end2end_weights}. "
-            "Huấn luyện train_end2end.py hoặc truyền --end2end_weights."
+            "Hãy chạy main.py để train phương án 2 trước khi benchmark."
         )
 
     _, first_clean, first_noisy, _ = samples[0]
@@ -410,91 +419,20 @@ def run_benchmark(
             "Pipeline 2 BLEU: "
             + ", ".join(f"{key}={value:.4f}" for key, value in scores.items())
         )
+    mean_psnr = sum(float(row["P1_PSNR"]) for row in results) / len(results)
+    mean_ssim = sum(float(row["P1_SSIM"]) for row in results) / len(results)
     print(
         "Pipeline 1 image quality: "
-        f"PSNR={np.mean([row['P1_PSNR'] for row in results]):.2f} dB, "
-        f"SSIM={np.mean([row['P1_SSIM'] for row in results]):.4f}"
+        f"PSNR={mean_psnr:.2f} dB, SSIM={mean_ssim:.4f}"
     )
     return results
 
 
-def _positive_int(value: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError as error:
-        raise argparse.ArgumentTypeError("phải là số nguyên dương") from error
-    if parsed < 1:
-        raise argparse.ArgumentTypeError("phải lớn hơn 0")
-    return parsed
-
-
-def _caption_length(value: str) -> int:
-    parsed = _positive_int(value)
-    if parsed < 2:
-        raise argparse.ArgumentTypeError("phải lớn hơn hoặc bằng 2")
-    return parsed
-
-
-def get_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Benchmark noisy image captioning.")
-    parser.add_argument(
-        "--noise-level",
-        "--noise_level",
-        dest="noise_level",
-        choices=("15", "25", "50", "random"),
-        default="25",
+def run_benchmark() -> list[dict]:
+    """Run the benchmark with the configuration constants at the top of this file."""
+    return _run_benchmark(
+        noise_level=NOISE_LEVEL,
+        limit=LIMIT,
+        max_length=MAX_LENGTH,
+        device=DEVICE,
     )
-    parser.add_argument("--captions", type=Path, default=TEST_CAPTIONS_PATH)
-    parser.add_argument("--images-dir", "--images_dir", type=Path, default=IMAGES_DIR)
-    parser.add_argument("--noisy-dir", "--noisy_dir", type=Path, default=None)
-    parser.add_argument(
-        "--baseline-weights", "--baseline_weights", type=Path, default=WEIGHTS_PATH
-    )
-    parser.add_argument(
-        "--dncnn-weights", "--dncnn_weights", type=Path, default=DNCNN_WEIGHTS_PATH
-    )
-    parser.add_argument(
-        "--end2end-weights", "--end2end_weights", type=Path, default=None
-    )
-    parser.add_argument("--vocab-path", "--vocab_path", type=Path, default=VOCAB_PATH)
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=PROCESSED_DATA_DIR / "benchmark_comparison.csv",
-    )
-    parser.add_argument("--limit", type=_positive_int, default=None)
-    parser.add_argument(
-        "--max-length", "--max_length", type=_caption_length, default=20
-    )
-    parser.add_argument(
-        "--device", choices=("auto", "cpu", "cuda"), default="auto"
-    )
-    return parser
-
-
-def main() -> None:
-    sys.stdout.reconfigure(encoding="utf-8")
-    parser = get_parser()
-    args = parser.parse_args()
-    if args.device == "cuda" and not torch.cuda.is_available():
-        parser.error("CUDA được chọn nhưng không khả dụng.")
-    device = None if args.device == "auto" else torch.device(args.device)
-
-    run_benchmark(
-        captions_path=args.captions,
-        images_dir=args.images_dir,
-        noisy_dir=args.noisy_dir,
-        baseline_weights=args.baseline_weights,
-        dncnn_weights=args.dncnn_weights,
-        end2end_weights=args.end2end_weights,
-        vocab_path=args.vocab_path,
-        output_path=args.output,
-        noise_level=args.noise_level,
-        limit=args.limit,
-        max_length=args.max_length,
-        device=device,
-    )
-
-
-if __name__ == "__main__":
-    main()

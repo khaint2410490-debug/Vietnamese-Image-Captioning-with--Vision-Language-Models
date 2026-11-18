@@ -50,6 +50,7 @@ def train_dncnn(
     learning_rate: float = 1e-3,
     patience: int = 5,
     patch_size: int = 64,
+    limit: Optional[int] = None,
     device: Optional[str] = None,
 ) -> dict:
     if device is None:
@@ -72,6 +73,12 @@ def train_dncnn(
         noise_level=noise_level,
         unique_images=True,
     )
+
+    if limit is not None:
+        if limit < 1:
+            raise ValueError("limit phải lớn hơn 0.")
+        train_dataset.samples = train_dataset.samples[:limit]
+        val_dataset.samples = val_dataset.samples[: max(1, limit // 8)]
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
@@ -172,26 +179,3 @@ def train_dncnn(
                 break
 
     return history
-
-
-if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="Huấn luyện mô hình khử nhiễu DnCNN")
-    parser.add_argument("--noise_level", type=str, default="25")
-    parser.add_argument("--epochs", type=int, default=15)
-    parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--patch_size", type=int, default=64)
-    args = parser.parse_args()
-
-    level = "random" if args.noise_level.lower() == "random" else float(args.noise_level)
-    if isinstance(level, float) and level.is_integer():
-        level = int(level)
-
-    train_dncnn(
-        noise_level=level,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        learning_rate=args.lr,
-        patch_size=args.patch_size,
-    )
