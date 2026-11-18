@@ -52,58 +52,36 @@ nhiễu tương ứng. Không dùng tập test để huấn luyện hay chọn c
 
 ## Quy trình huấn luyện
 
-Chạy các lệnh từ thư mục gốc repository. Cần có dữ liệu ảnh và caption trước.
-
-### 1. Huấn luyện baseline trên ảnh sạch
+Chuẩn bị `data/raw/captions.csv` và ảnh trong `data/raw/Images/`, sau đó chỉ cần
+chạy từ thư mục gốc:
 
 ```powershell
 python main.py
 ```
 
-Lệnh này tạo lại các split theo ảnh, xây vocabulary từ tập train và huấn luyện
-mô hình captioning baseline. Các tham số như epoch, batch size và learning rate
-được cấu hình ở đầu `main.py`.
+`main.py` thực hiện tuần tự toàn bộ quy trình:
 
-### 2. Sinh ảnh nhiễu
+1. Chia dữ liệu theo ảnh, xây vocabulary và train baseline captioning trên ảnh
+   sạch. Baseline này khởi tạo cho phương án 2 và làm captioner sau DnCNN ở
+   phương án 1.
+2. Tạo ảnh nhiễu Gaussian tại
+   `data/processed/NoisyImages_sigma{NOISE_LEVEL}/`.
+3. **Phương án 1:** train DnCNN trên cặp ảnh sạch/nhiễu, lưu
+   `data/processed/dncnn_weights.pt`. Khi inference, ảnh nhiễu qua DnCNN rồi
+   captioner baseline sinh caption.
+4. **Phương án 2:** nạp baseline và fine-tune trực tiếp trên ảnh nhiễu, mở khóa
+   các stage cuối ResNet-18; checkpoint được lưu tại
+   `data/processed/end2end_caption_weights_sigma{NOISE_LEVEL}.pt`.
 
-Chạy riêng cho mỗi mức nhiễu cần thực nghiệm:
+Mức nhiễu và thông số train được đặt ở đầu `main.py`: `NOISE_LEVEL`,
+`EPOCHS`, `DNCNN_EPOCHS`, `END2END_EPOCHS`, batch size và learning rate. Mức
+nhiễu cố định thường dùng là `15`, `25`, `50`; giá trị `random` lấy sigma riêng
+cho từng ảnh. Đặt `TRAINING_LIMIT` thành số nguyên nhỏ để chạy thử nhanh; để
+`None` khi train toàn bộ dữ liệu. Mỗi lần chạy `main.py` sẽ train lại baseline
+và cả hai phương án.
 
-```powershell
-python -m preprocessing.noise_generator --noise_level 25
-```
-
-Các mức hỗ trợ được dự định dùng là `15`, `25`, `50` hoặc `random`. Lệnh tạo
-ảnh nhiễu cùng tên file với ảnh sạch trong `data/processed/NoisyImages_sigma25/`.
-
-### 3. Huấn luyện DnCNN (phương án khử nhiễu)
-
-```powershell
-python -m training.train_dncnn --noise_level 25
-```
-
-DnCNN học dự đoán residual `noisy - clean`, dùng loss bình phương residual,
-AdamW, scheduler và early stopping theo PSNR validation. Ảnh đầu vào và mục
-tiêu DnCNN được biểu diễn trong miền [0,1]. Mức nhiễu cố định dùng mặc định
-17 lớp; `random` dùng 20 lớp.
-
-### 4. Fine-tune captioning end-to-end
-
-```powershell
-python -m training.train_end2end --noise_level 25
-```
-
-Lệnh nạp baseline và vocabulary đã tạo ở bước 1, rồi fine-tune trên ảnh nhiễu
-đã tạo ở bước 2. Mặc định mở khóa hai stage cuối của ResNet-18 ngay từ epoch
-đầu; learning rate của encoder nhỏ hơn learning rate decoder. Có thể chạy thử
-với ít mẫu:
-
-```powershell
-python -m training.train_end2end --noise_level 25 --limit 64 --epochs 1
-```
-
-Đầu ra mặc định là
-`data/processed/end2end_caption_weights_sigma25.pt`. Muốn chạy lại ở mức nhiễu
-khác, lặp lại bước sinh dữ liệu và huấn luyện với cùng `--noise_level`.
+Dòng lệnh riêng của `noise_generator.py`, `train_dncnn.py` và
+`train_end2end.py` không còn cần dùng; `main.py` gọi trực tiếp các hàm này.
 
 ## Benchmark
 
@@ -115,35 +93,15 @@ lưu từng ảnh ra `data/processed/benchmark_comparison.csv`. Đo lường:
 - Thời gian inference cho baseline, pipeline DnCNN và end-to-end.
 - PSNR/SSIM giữa ảnh sạch và ảnh do DnCNN khôi phục.
 
-Sinh dữ liệu nhiễu và huấn luyện DnCNN trước khi benchmark:
-
-```powershell
-python -m preprocessing.noise_generator --noise_level 25
-python -m training.train_dncnn --noise_level 25
-python evaluation/benchmark.v2.py --noise_level 25
-```
-
-Benchmark tìm checkpoint end-to-end tại
-`data/processed/end2end_caption_weights_sigma25.pt`. Nếu chưa có checkpoint,
-Pipeline 2 được ghi để trống và được thông báo là bỏ qua; truyền
-`--end2end_weights <đường_dẫn>` để chỉ định checkpoint khác. Ví dụ chạy nhanh
-trên một ảnh:
-
-```powershell
-python evaluation/benchmark.v2.py --noise_level 25 --limit 1
-```
-
-Có thể tùy chỉnh đường dẫn bằng `--captions`, `--images-dir`, `--noisy-dir`,
-`--baseline-weights`, `--dncnn-weights`, `--end2end-weights`, `--vocab-path`
-và `--output`; các cờ đường dẫn cũ dùng dấu gạch dưới vẫn được hỗ trợ. Chọn
-thiết bị với `--device auto|cpu|cuda`. `--limit` phải là số nguyên dương,
-`--max-length` phải từ 2 trở lên, còn `--noise-level` nhận `15`, `25`, `50`
-hoặc `random`. Nếu thiếu ảnh sạch hoặc ảnh nhiễu trong tập test, benchmark dừng
-và báo các tên ảnh bị thiếu thay vì âm thầm loại bỏ mẫu.
+Hai benchmark không có parser/CLI và không được gọi khi train. Các hàm chạy
+benchmark dùng cấu hình mặc định trong file; benchmark v2 nhận mức nhiễu từ
+hằng `NOISE_LEVEL`, các giới hạn mẫu và độ dài caption từ các hằng ở đầu file.
+Benchmark v2 bỏ qua Pipeline 2 nếu checkpoint end-to-end tương ứng chưa có.
+Thiếu ảnh sạch hoặc nhiễu trong tập test sẽ báo lỗi thay vì âm thầm bỏ mẫu.
 
 PSNR/SSIM nhận ảnh dạng [0,1] hoặc [0,255] và chọn `data_range` tương ứng.
-`evaluation/benchmark.v1.py` là bản benchmark phác thảo; dùng `benchmark.v2.py`
-cho kết quả inference trên mô hình và dữ liệu thực.
+`evaluation/benchmark.v1.py` đo baseline; `benchmark.v2.py` so sánh cả ba
+pipeline.
 
 ## Cấu trúc mã nguồn
 
@@ -162,5 +120,6 @@ cho kết quả inference trên mô hình và dữ liệu thực.
 | `evaluation/benchmark.v2.py` | So sánh inference ba pipeline trên tập test |
 | `project_paths.py` | Đường dẫn artifact dùng chung trong dự án |
 
-`main.py` hiện huấn luyện baseline trên ảnh sạch; các lệnh huấn luyện DnCNN,
-fine-tune ảnh nhiễu và benchmark được chạy riêng như hướng dẫn ở trên.
+`main.py` là entrypoint huấn luyện duy nhất cho baseline và cả hai phương án
+noisy-captioning. Benchmark là tiện ích đánh giá riêng, không chạy trong quá
+trình huấn luyện.
