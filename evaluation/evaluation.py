@@ -24,7 +24,10 @@ from pathlib import Path
 
 import torch
 
-from generate_caption import load_model
+if __package__:
+    from .generate_caption import load_model
+else:
+    from generate_caption import load_model
 from model.captioning.image_captioning import ImageCaptioningModel
 from preprocessing.text_preprocessing import preprocess_caption
 from training.train import compute_batch_loss, encode_captions, load_captions

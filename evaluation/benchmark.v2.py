@@ -1,164 +1,500 @@
+"""Compare clean baseline, DnCNN denoising, and end-to-end captioning."""
+
+import argparse
+import csv
+import sys
 import time
+from pathlib import Path
+from typing import Sequence
+
 import numpy as np
-import pandas as pd
-from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
-from skimage.metrics import peak_signal_noise_ratio as psnr
-from skimage.metrics import structural_similarity as ssim
+import torch
+from PIL import Image
+from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
-# =====================================================================
-# 1. WRAPPER FUNCTIONS (THE "PLUG-AND-PLAY" STUBS)
-# =====================================================================
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-def run_baseline(clean_image):
-    """
-    Baseline: Feeds a clean image into the original captioning model.
-    Returns: (generated_caption, execution_time_seconds)
-    """
-    start_time = time.perf_counter()
-    
-    # TODO: Replace this dummy string with the real Baseline model inference
-    generated_caption = "một con mèo đang ngồi trên ghế"
-    
-    elapsed_time = time.perf_counter() - start_time
-    return generated_caption, elapsed_time
+from evaluation.evaluation import corpus_bleu, tokenize_reference
+from evaluation.generate_caption import load_model
+from model.denoising.dncnn import DnCNN
+from preprocessing.dataset import image_to_unit_tensor, normalize_imagenet_batch
+from project_paths import (
+    DNCNN_WEIGHTS_PATH,
+    IMAGES_DIR,
+    PROCESSED_DATA_DIR,
+    TEST_CAPTIONS_PATH,
+    VOCAB_PATH,
+    WEIGHTS_PATH,
+)
 
 
-def run_pipeline_1_dncnn(noisy_image):
-    """
-    Pipeline 1: Cleans the noisy image using DnCNN, then generates a caption.
-    Returns: (denoised_image, generated_caption, execution_time_seconds)
-    """
-    start_time = time.perf_counter()
-    
-    # TODO: Step A - Pass noisy_image through DnCNN to get denoised_image
-    # For now, we return a dummy image (same shape as input)
-    denoised_image = noisy_image.copy() 
-    
-    # TODO: Step B - Pass denoised_image through the captioning model
-    generated_caption = "con mèo ngồi trên chiếc ghế"
-    
-    elapsed_time = time.perf_counter() - start_time
-    return denoised_image, generated_caption, elapsed_time
+def calculate_bleu_scores(
+    reference_caption: str | Sequence[str], candidate_caption: str
+) -> dict[str, float]:
+    """Calculate BLEU-1..4 using the project's Vietnamese caption tokenization."""
+    references = (
+        [reference_caption]
+        if isinstance(reference_caption, str)
+        else list(reference_caption)
+    )
+    return corpus_bleu(
+        [[tokenize_reference(caption) for caption in references]],
+        [tokenize_reference(candidate_caption)],
+    )
 
 
-def run_pipeline_2_end2end(noisy_image):
-    """
-    Pipeline 2: Feeds noisy image directly into the fine-tuned model.
-    Returns: (generated_caption, execution_time_seconds)
-    """
-    start_time = time.perf_counter()
-    
-    # TODO: Replace with real End-to-End fine-tuned model inference
-    generated_caption = "một chú mèo đang nằm trên ghế"
-    
-    elapsed_time = time.perf_counter() - start_time
-    return generated_caption, elapsed_time
+def _as_numpy(image: np.ndarray | torch.Tensor) -> np.ndarray:
+    if isinstance(image, torch.Tensor):
+        image = image.detach().cpu().numpy()
+    return np.asarray(image)
 
 
-# =====================================================================
-# 2. METRIC CALCULATION HELPERS
-# =====================================================================
-
-def calculate_bleu_scores(reference_caption, candidate_caption):
-    """
-    Compares the AI's caption against the human reference caption.
-    Returns a dictionary of BLEU-1, BLEU-2, BLEU-3, and BLEU-4 scores.
-    """
-    # Split sentences into lists of words (tokens)
-    ref_tokens = [reference_caption.lower().split()]
-    cand_tokens = candidate_caption.lower().split()
-    
-    # Smoothing prevents the score from dropping to 0 on short sentences
-    smooth = SmoothingFunction().method1
-    
-    bleu_1 = sentence_bleu(ref_tokens, cand_tokens, weights=(1, 0, 0, 0), smoothing_function=smooth)
-    bleu_2 = sentence_bleu(ref_tokens, cand_tokens, weights=(0.5, 0.5, 0, 0), smoothing_function=smooth)
-    bleu_3 = sentence_bleu(ref_tokens, cand_tokens, weights=(0.33, 0.33, 0.33, 0), smoothing_function=smooth)
-    bleu_4 = sentence_bleu(ref_tokens, cand_tokens, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=smooth)
-    
-    return {
-        "BLEU-1": round(bleu_1, 4),
-        "BLEU-2": round(bleu_2, 4),
-        "BLEU-3": round(bleu_3, 4),
-        "BLEU-4": round(bleu_4, 4)
-    }
+def _image_data_range(clean_img: np.ndarray, denoised_img: np.ndarray) -> float:
+    minimum = min(float(clean_img.min()), float(denoised_img.min()))
+    maximum = max(float(clean_img.max()), float(denoised_img.max()))
+    if minimum < 0:
+        raise ValueError("Ảnh phải có pixel trong miền [0, 1] hoặc [0, 255].")
+    if np.issubdtype(clean_img.dtype, np.integer) or np.issubdtype(
+        denoised_img.dtype, np.integer
+    ):
+        if maximum <= 255:
+            return 255.0
+        raise ValueError("Ảnh số nguyên phải có pixel trong miền [0, 255].")
+    if maximum <= 1:
+        return 1.0
+    if maximum <= 255:
+        return 255.0
+    raise ValueError("Ảnh phải có pixel trong miền [0, 1] hoặc [0, 255].")
 
 
-def calculate_image_quality(clean_img, denoised_img):
-    """
-    Measures how well DnCNN cleaned the image compared to the original clean image.
-    Assumes images are NumPy arrays with pixel values in [0, 255] or [0, 1].
-    """
-    # data_range=1.0 if normalized [0,1], or 255 if standard image pixels
-    psnr_val = psnr(clean_img, denoised_img, data_range=1.0)
-    ssim_val = ssim(clean_img, denoised_img, channel_axis=-1, data_range=1.0)
-    
-    return round(psnr_val, 2), round(ssim_val, 4)
+def calculate_image_quality(
+    clean_img: np.ndarray | torch.Tensor,
+    denoised_img: np.ndarray | torch.Tensor,
+) -> tuple[float, float]:
+    """Measure PSNR and SSIM for matching images represented in [0,1] or [0,255]."""
+    clean = _as_numpy(clean_img)
+    denoised = _as_numpy(denoised_img)
+    if clean.shape != denoised.shape:
+        raise ValueError(
+            f"Kích thước ảnh không khớp: {clean.shape} và {denoised.shape}."
+        )
+    if clean.ndim not in (2, 3):
+        raise ValueError("Ảnh phải có shape (H, W) hoặc (H, W, C).")
+    if not np.isfinite(clean).all() or not np.isfinite(denoised).all():
+        raise ValueError("Ảnh chứa giá trị NaN hoặc vô cực.")
+
+    data_range = _image_data_range(clean, denoised)
+    channel_axis = -1 if clean.ndim == 3 else None
+    psnr_value = peak_signal_noise_ratio(clean, denoised, data_range=data_range)
+    ssim_value = structural_similarity(
+        clean,
+        denoised,
+        data_range=data_range,
+        channel_axis=channel_axis,
+    )
+    return round(float(psnr_value), 2), round(float(ssim_value), 4)
 
 
-# =====================================================================
-# 3. MAIN BENCHMARK LOOP
-# =====================================================================
+def _read_test_samples(
+    captions_path: Path,
+    images_dir: Path,
+    noisy_dir: Path,
+    limit: int | None,
+) -> list[tuple[str, Path, Path, list[str]]]:
+    grouped: dict[str, list[str]] = {}
+    with captions_path.open("r", encoding="utf-8-sig", newline="") as file:
+        reader = csv.DictReader(file)
+        if reader.fieldnames is None or not {"image", "caption"} <= set(reader.fieldnames):
+            raise ValueError("File test cần có header với hai cột: image,caption.")
+        for row in reader:
+            image_name = (row["image"] or "").strip()
+            caption = (row["caption"] or "").strip()
+            if image_name and caption:
+                grouped.setdefault(image_name, []).append(caption)
 
-def run_benchmark():
-    print("Starting Benchmark Evaluation...")
-    
-    # Dummy test dataset (Replace this with your actual DataLoader from dataset.py)
-    # Format: (image_id, clean_image_array, noisy_image_array, human_caption)
-    dummy_test_data = [
-        ("img_001.jpg", np.ones((224, 224, 3)), np.ones((224, 224, 3)) * 0.9, "một con mèo đang ngồi trên ghế"),
-        ("img_002.jpg", np.ones((224, 224, 3)), np.ones((224, 224, 3)) * 0.85, "người đàn ông đang đi bộ trên đường")
-    ]
-    
-    all_results = []
+    if not grouped:
+        raise RuntimeError(f"Không có caption hợp lệ trong {captions_path}.")
+    if limit is not None:
+        if limit < 1:
+            raise ValueError("--limit phải lớn hơn 0.")
+        grouped = dict(list(grouped.items())[:limit])
 
-    for img_id, clean_img, noisy_img, ref_caption in dummy_test_data:
-        # 1. Run all three pipelines
-        base_cap, base_time = run_baseline(clean_img)
-        p1_denoised, p1_cap, p1_time = run_pipeline_1_dncnn(noisy_img)
-        p2_cap, p2_time = run_pipeline_2_end2end(noisy_img)
-        
-        # 2. Grade the text outputs
-        base_bleu = calculate_bleu_scores(ref_caption, base_cap)
-        p1_bleu = calculate_bleu_scores(ref_caption, p1_cap)
-        p2_bleu = calculate_bleu_scores(ref_caption, p2_cap)
-        
-        # 3. Grade the image cleaning (Only Pipeline 1 does image denoising)
-        p1_psnr, p1_ssim = calculate_image_quality(clean_img, p1_denoised)
-        
-        # 4. Record everything into a single row
+    samples = []
+    missing = []
+    for image_name, captions in grouped.items():
+        clean_path = images_dir / image_name
+        noisy_path = noisy_dir / image_name
+        if not clean_path.is_file() or not noisy_path.is_file():
+            missing.append(image_name)
+            continue
+        samples.append((image_name, clean_path, noisy_path, captions))
+
+    if missing:
+        raise FileNotFoundError(
+            f"Thiếu ảnh sạch hoặc ảnh nhiễu cho {len(missing)} ảnh; "
+            f"ví dụ: {', '.join(missing[:5])}. Kiểm tra thư mục "
+            f"{images_dir} và {noisy_dir}."
+        )
+    return samples
+
+
+def _synchronize(device: torch.device) -> None:
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+
+
+def _load_dncnn(weights_path: Path, device: torch.device) -> DnCNN:
+    checkpoint = torch.load(weights_path, map_location=device)
+    if not isinstance(checkpoint, dict) or "model_state_dict" not in checkpoint:
+        raise ValueError(f"Checkpoint DnCNN không đúng định dạng: {weights_path}")
+    model = DnCNN(num_of_layers=int(checkpoint.get("num_of_layers", 17))).to(device)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.eval()
+    return model
+
+
+def run_benchmark(
+    captions_path: Path = TEST_CAPTIONS_PATH,
+    images_dir: Path = IMAGES_DIR,
+    noisy_dir: Path | None = None,
+    baseline_weights: Path = WEIGHTS_PATH,
+    dncnn_weights: Path = DNCNN_WEIGHTS_PATH,
+    end2end_weights: Path | None = None,
+    vocab_path: Path = VOCAB_PATH,
+    output_path: Path = PROCESSED_DATA_DIR / "benchmark_comparison.csv",
+    noise_level: str = "25",
+    limit: int | None = None,
+    max_length: int = 20,
+    device: torch.device | None = None,
+) -> list[dict]:
+    noise_level = str(noise_level).lower()
+    if noise_level not in {"15", "25", "50", "random"}:
+        raise ValueError("noise_level phải là 15, 25, 50 hoặc random.")
+    if limit is not None and limit < 1:
+        raise ValueError("limit phải lớn hơn 0.")
+    if max_length < 2:
+        raise ValueError("max_length phải lớn hơn hoặc bằng 2.")
+
+    captions_path = Path(captions_path)
+    images_dir = Path(images_dir)
+    baseline_weights = Path(baseline_weights)
+    dncnn_weights = Path(dncnn_weights)
+    vocab_path = Path(vocab_path)
+    output_path = Path(output_path)
+    device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    noisy_dir = (
+        Path(noisy_dir)
+        if noisy_dir is not None
+        else PROCESSED_DATA_DIR / f"NoisyImages_sigma{noise_level}"
+    )
+    default_end2end = (
+        PROCESSED_DATA_DIR / f"end2end_caption_weights_sigma{noise_level}.pt"
+    )
+    requested_end2end = end2end_weights is not None
+    end2end_weights = (
+        Path(end2end_weights) if end2end_weights is not None else default_end2end
+    )
+
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise ValueError("CUDA đã được chọn nhưng không khả dụng.")
+    if images_dir.resolve() == noisy_dir.resolve():
+        raise ValueError("images_dir và noisy_dir không được trùng nhau.")
+    protected_paths = (
+        captions_path,
+        baseline_weights,
+        dncnn_weights,
+        end2end_weights,
+        vocab_path,
+    )
+    if any(output_path.resolve() == path.resolve() for path in protected_paths):
+        raise ValueError("output không được trùng với file dữ liệu hoặc checkpoint đầu vào.")
+    resolved_output = output_path.resolve()
+    for directory in (images_dir, noisy_dir):
+        try:
+            resolved_output.relative_to(directory.resolve())
+        except ValueError:
+            continue
+        raise ValueError("output không được nằm trong thư mục ảnh đầu vào.")
+    if output_path.exists() and output_path.is_dir():
+        raise ValueError(f"output phải là đường dẫn file, không phải thư mục: {output_path}")
+
+    for path, name in (
+        (captions_path, "Tập test"),
+        (baseline_weights, "Checkpoint baseline"),
+        (dncnn_weights, "Checkpoint DnCNN"),
+        (vocab_path, "Vocabulary"),
+    ):
+        if not path.is_file():
+            raise FileNotFoundError(f"{name} không tồn tại: {path}")
+    if not noisy_dir.is_dir():
+        raise FileNotFoundError(
+            f"Không tìm thấy thư mục ảnh nhiễu: {noisy_dir}. "
+            f"Hãy chạy `python -m preprocessing.noise_generator "
+            f"--noise_level {noise_level}` trước."
+        )
+    if requested_end2end and not end2end_weights.is_file():
+        raise FileNotFoundError(f"Checkpoint end-to-end không tồn tại: {end2end_weights}")
+
+    samples = _read_test_samples(captions_path, images_dir, noisy_dir, limit)
+    if not samples:
+        raise RuntimeError("Không còn ảnh hợp lệ để benchmark.")
+
+    print(f"Thiết bị: {device}; số ảnh: {len(samples)}")
+    baseline = load_model(
+        weights_path=baseline_weights,
+        vocab_path=vocab_path,
+        device=device,
+    )
+    denoiser = _load_dncnn(dncnn_weights, device)
+    end2end = (
+        load_model(
+            weights_path=end2end_weights,
+            vocab_path=vocab_path,
+            device=device,
+        )
+        if end2end_weights.is_file()
+        else None
+    )
+    if end2end is None:
+        print(
+            f"Bỏ qua Pipeline 2: chưa có checkpoint {end2end_weights}. "
+            "Huấn luyện train_end2end.py hoặc truyền --end2end_weights."
+        )
+
+    _, first_clean, first_noisy, _ = samples[0]
+    baseline.generate_caption(first_clean, max_length=max_length)
+    with Image.open(first_noisy) as image:
+        first_noisy_tensor = image_to_unit_tensor(image).unsqueeze(0).to(device)
+    denoised_warmup = denoiser.denoise(first_noisy_tensor)
+    baseline.generate_caption(
+        normalize_imagenet_batch(denoised_warmup[0]), max_length=max_length
+    )
+    if end2end is not None:
+        end2end.generate_caption(
+            normalize_imagenet_batch(first_noisy_tensor[0]), max_length=max_length
+        )
+    _synchronize(device)
+
+    results = []
+    references_by_image = []
+    baseline_hypotheses, dncnn_hypotheses, end2end_hypotheses = [], [], []
+
+    for image_name, clean_path, noisy_path, captions in samples:
+        with Image.open(clean_path) as image:
+            clean_tensor = image_to_unit_tensor(image)
+        with Image.open(noisy_path) as image:
+            noisy_tensor = image_to_unit_tensor(image).unsqueeze(0).to(device)
+
+        _synchronize(device)
+        started = time.perf_counter()
+        baseline_tokens = baseline.generate_caption(clean_path, max_length=max_length)
+        _synchronize(device)
+        baseline_seconds = time.perf_counter() - started
+
+        _synchronize(device)
+        started = time.perf_counter()
+        denoised_tensor = denoiser.denoise(noisy_tensor)
+        dncnn_tokens = baseline.generate_caption(
+            normalize_imagenet_batch(denoised_tensor[0]), max_length=max_length
+        )
+        _synchronize(device)
+        dncnn_seconds = time.perf_counter() - started
+
+        dncnn_psnr, dncnn_ssim = calculate_image_quality(
+            clean_tensor.permute(1, 2, 0),
+            denoised_tensor[0].permute(1, 2, 0),
+        )
+
+        end2end_tokens = None
+        end2end_seconds = None
+        if end2end is not None:
+            _synchronize(device)
+            started = time.perf_counter()
+            end2end_tokens = end2end.generate_caption(
+                normalize_imagenet_batch(noisy_tensor[0]), max_length=max_length
+            )
+            _synchronize(device)
+            end2end_seconds = time.perf_counter() - started
+
+        reference_tokens = [tokenize_reference(caption) for caption in captions]
+        references_by_image.append(reference_tokens)
+        baseline_hypotheses.append(baseline_tokens)
+        dncnn_hypotheses.append(dncnn_tokens)
+        if end2end_tokens is not None:
+            end2end_hypotheses.append(end2end_tokens)
+
         row = {
-            "Image_ID": img_id,
-            "Reference_Caption": ref_caption,
-            
-            # Baseline Results
-            "Base_Caption": base_cap,
-            "Base_BLEU4": base_bleu["BLEU-4"],
-            "Base_Time_s": round(base_time, 4),
-            
-            # Pipeline 1 Results
-            "P1_Caption": p1_cap,
-            "P1_PSNR": p1_psnr,
-            "P1_SSIM": p1_ssim,
-            "P1_BLEU4": p1_bleu["BLEU-4"],
-            "P1_Time_s": round(p1_time, 4),
-            
-            # Pipeline 2 Results
-            "P2_Caption": p2_cap,
-            "P2_BLEU4": p2_bleu["BLEU-4"],
-            "P2_Time_s": round(p2_time, 4),
+            "Image_ID": image_name,
+            "Reference_Captions": " || ".join(captions),
+            "Base_Caption": baseline.tokens_to_text(baseline_tokens),
+            "Base_Time_s": round(baseline_seconds, 4),
+            "P1_Caption": baseline.tokens_to_text(dncnn_tokens),
+            "P1_PSNR": dncnn_psnr,
+            "P1_SSIM": dncnn_ssim,
+            "P1_Time_s": round(dncnn_seconds, 4),
+            "P2_Caption": (
+                end2end.tokens_to_text(end2end_tokens)
+                if end2end_tokens is not None and end2end is not None
+                else ""
+            ),
+            "P2_Time_s": (
+                round(end2end_seconds, 4) if end2end_seconds is not None else ""
+            ),
         }
-        all_results.append(row)
+        for prefix, hypothesis in (
+            ("Base", baseline_tokens),
+            ("P1", dncnn_tokens),
+        ):
+            scores = calculate_bleu_scores(captions, baseline.tokens_to_text(hypothesis))
+            row.update(
+                {f"{prefix}_{name.replace('-', '')}": score for name, score in scores.items()}
+            )
+        if end2end_tokens is not None and end2end is not None:
+            scores = calculate_bleu_scores(
+                captions, end2end.tokens_to_text(end2end_tokens)
+            )
+            row.update(
+                {f"P2_{name.replace('-', '')}": score for name, score in scores.items()}
+            )
+        else:
+            row.update({f"P2_BLEU{number}": "" for number in range(1, 5)})
+        results.append(row)
 
-    # Convert to a Pandas table and save to CSV
-    df = pd.DataFrame(all_results)
-    output_path = "data/processed/benchmark_comparison.csv"
-    df.to_csv(output_path, index=False, encoding="utf-8-sig")
-    
-    print(f"Done! Results saved to {output_path}")
-    print("\nPreview of Average Scores:")
-    print(df[["Base_BLEU4", "P1_BLEU4", "P2_BLEU4", "P1_PSNR", "P1_SSIM"]].mean())
+        if len(results) % 25 == 0:
+            print(f"Đã xử lý {len(results)}/{len(samples)} ảnh.")
+
+    fields = [
+        "Image_ID",
+        "Reference_Captions",
+        "Base_Caption",
+        "Base_BLEU1",
+        "Base_BLEU2",
+        "Base_BLEU3",
+        "Base_BLEU4",
+        "Base_Time_s",
+        "P1_Caption",
+        "P1_BLEU1",
+        "P1_BLEU2",
+        "P1_BLEU3",
+        "P1_BLEU4",
+        "P1_PSNR",
+        "P1_SSIM",
+        "P1_Time_s",
+        "P2_Caption",
+        "P2_BLEU1",
+        "P2_BLEU2",
+        "P2_BLEU3",
+        "P2_BLEU4",
+        "P2_Time_s",
+    ]
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(results)
+
+    print(f"Đã lưu kết quả: {output_path}")
+    for name, hypotheses in (
+        ("Baseline", baseline_hypotheses),
+        ("Pipeline 1", dncnn_hypotheses),
+    ):
+        scores = corpus_bleu(references_by_image, hypotheses)
+        print(
+            f"{name} BLEU: "
+            + ", ".join(f"{key}={value:.4f}" for key, value in scores.items())
+        )
+    if end2end is not None:
+        scores = corpus_bleu(references_by_image, end2end_hypotheses)
+        print(
+            "Pipeline 2 BLEU: "
+            + ", ".join(f"{key}={value:.4f}" for key, value in scores.items())
+        )
+    print(
+        "Pipeline 1 image quality: "
+        f"PSNR={np.mean([row['P1_PSNR'] for row in results]):.2f} dB, "
+        f"SSIM={np.mean([row['P1_SSIM'] for row in results]):.4f}"
+    )
+    return results
+
+
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("phải là số nguyên dương") from error
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("phải lớn hơn 0")
+    return parsed
+
+
+def _caption_length(value: str) -> int:
+    parsed = _positive_int(value)
+    if parsed < 2:
+        raise argparse.ArgumentTypeError("phải lớn hơn hoặc bằng 2")
+    return parsed
+
+
+def get_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Benchmark noisy image captioning.")
+    parser.add_argument(
+        "--noise-level",
+        "--noise_level",
+        dest="noise_level",
+        choices=("15", "25", "50", "random"),
+        default="25",
+    )
+    parser.add_argument("--captions", type=Path, default=TEST_CAPTIONS_PATH)
+    parser.add_argument("--images-dir", "--images_dir", type=Path, default=IMAGES_DIR)
+    parser.add_argument("--noisy-dir", "--noisy_dir", type=Path, default=None)
+    parser.add_argument(
+        "--baseline-weights", "--baseline_weights", type=Path, default=WEIGHTS_PATH
+    )
+    parser.add_argument(
+        "--dncnn-weights", "--dncnn_weights", type=Path, default=DNCNN_WEIGHTS_PATH
+    )
+    parser.add_argument(
+        "--end2end-weights", "--end2end_weights", type=Path, default=None
+    )
+    parser.add_argument("--vocab-path", "--vocab_path", type=Path, default=VOCAB_PATH)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=PROCESSED_DATA_DIR / "benchmark_comparison.csv",
+    )
+    parser.add_argument("--limit", type=_positive_int, default=None)
+    parser.add_argument(
+        "--max-length", "--max_length", type=_caption_length, default=20
+    )
+    parser.add_argument(
+        "--device", choices=("auto", "cpu", "cuda"), default="auto"
+    )
+    return parser
+
+
+def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8")
+    parser = get_parser()
+    args = parser.parse_args()
+    if args.device == "cuda" and not torch.cuda.is_available():
+        parser.error("CUDA được chọn nhưng không khả dụng.")
+    device = None if args.device == "auto" else torch.device(args.device)
+
+    run_benchmark(
+        captions_path=args.captions,
+        images_dir=args.images_dir,
+        noisy_dir=args.noisy_dir,
+        baseline_weights=args.baseline_weights,
+        dncnn_weights=args.dncnn_weights,
+        end2end_weights=args.end2end_weights,
+        vocab_path=args.vocab_path,
+        output_path=args.output,
+        noise_level=args.noise_level,
+        limit=args.limit,
+        max_length=args.max_length,
+        device=device,
+    )
 
 
 if __name__ == "__main__":
-    run_benchmark()
+    main()
