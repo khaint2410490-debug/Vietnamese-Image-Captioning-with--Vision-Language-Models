@@ -45,25 +45,38 @@ def generate_noisy_dataset(
                 seen.add(img_name)
                 unique_images.append(img_name)
 
+    total_images = len(unique_images)
+    print(
+        f"[NoiseGenerator] Bắt đầu tạo ảnh nhiễu cho {total_images} ảnh "
+        f"tại: {output_dir}",
+        flush=True,
+    )
     map_rows = []
-    for img_name in unique_images:
+    for index, img_name in enumerate(unique_images, start=1):
         clean_path = clean_images_dir / img_name
-        if not clean_path.is_file():
-            continue
+        if clean_path.is_file():
+            sigma = (
+                float(rng.uniform(0.0, 55.0))
+                if str(noise_level).lower() == "random"
+                else float(noise_level)
+            )
+            with Image.open(clean_path) as img:
+                rgb_img = img.convert("RGB")
+                noisy_img = add_gaussian_noise(rgb_img, sigma=sigma, rng=rng)
+                noisy_path = output_dir / img_name
+                noisy_img.save(noisy_path, format="JPEG", quality=95)
 
-        sigma = float(rng.uniform(0.0, 55.0)) if str(noise_level).lower() == "random" else float(noise_level)
-        with Image.open(clean_path) as img:
-            rgb_img = img.convert("RGB")
-            noisy_img = add_gaussian_noise(rgb_img, sigma=sigma, rng=rng)
-            noisy_path = output_dir / img_name
-            noisy_img.save(noisy_path, format="JPEG", quality=95)
-
-        map_rows.append({
-            "image": img_name,
-            "clean_path": str(clean_path),
-            "noisy_path": str(noisy_path),
-            "sigma": round(sigma, 2),
-        })
+            map_rows.append({
+                "image": img_name,
+                "clean_path": str(clean_path),
+                "noisy_path": str(noisy_path),
+                "sigma": round(sigma, 2),
+            })
+        if index % 100 == 0 or index == total_images:
+            print(
+                f"[NoiseGenerator] Tiến độ: {index}/{total_images} ảnh",
+                flush=True,
+            )
 
     with open(NOISY_IMAGE_MAP_PATH, mode="w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["image", "clean_path", "noisy_path", "sigma"])
