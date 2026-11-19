@@ -1,4 +1,4 @@
-"""Fine-tune the captioning model directly on noisy images."""
+"""Huấn luyện trực tiếp mô hình captioning trên ảnh nhiễu."""
 
 import random
 from pathlib import Path

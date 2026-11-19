@@ -13,14 +13,14 @@ LIMIT = None
 
 def run_inference_benchmark() -> dict:
     """
-    Pure inference benchmark: measures speed (latency/FPS) and caption quality (BLEU-1..4)
-    without teacher-forcing loss or perplexity.
+    Chỉ benchmark suy luận: đo tốc độ (độ trễ/khung hình mỗi giây) và chất lượng
+    caption (BLEU-1..4), không tính loss teacher forcing hay perplexity.
     """
     model = load_model()
     device = next(model.parameters()).device
     pairs = load_captions(str(TEST_CAPTIONS_PATH), str(IMAGES_DIR))
 
-    # Group reference captions by image
+    # Gom các caption tham chiếu theo từng ảnh.
     grouped: dict[str, list[str]] = {}
     for image_path, caption in pairs:
         grouped.setdefault(image_path, []).append(caption)
@@ -32,7 +32,7 @@ def run_inference_benchmark() -> dict:
     hypotheses, references = [], []
     latencies = []
 
-    # Warm-up run (prevents first-image initialization overhead from skewing timing)
+    # Chạy làm nóng để thời gian khởi tạo không làm sai lệch kết quả ảnh đầu tiên.
     if image_paths:
         model.generate_caption(image_paths[0], max_length=MAX_LENGTH, greedy=GREEDY)
 
@@ -41,7 +41,7 @@ def run_inference_benchmark() -> dict:
             torch.cuda.synchronize()
         start_time = time.perf_counter()
 
-        # Pure inference generation
+        # Chỉ đo thời gian suy luận để sinh caption.
         tokens = model.generate_caption(
             image_path, max_length=MAX_LENGTH, greedy=GREEDY
         )

@@ -1,4 +1,4 @@
-"""Generate Gaussian-noisy images and a clean/noisy image mapping."""
+"""Tạo ảnh nhiễu Gaussian và bảng ánh xạ giữa ảnh sạch với ảnh nhiễu."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def read_image_list_from_captions(
     captions_path: str | Path = CAPTIONS_PATH,
     images_dir: str | Path = IMAGES_DIR,
 ) -> list[str]:
-    """Return unique image names from the caption CSV that exist on disk."""
+    """Trả về tên ảnh duy nhất trong CSV caption và có file thực tế trên đĩa."""
     captions_file = Path(captions_path)
     image_dir = Path(images_dir)
     if not captions_file.is_file():
@@ -101,7 +101,7 @@ def add_awgn_to_array(
     sigma: float,
     rng: np.random.Generator | None = None,
 ) -> np.ndarray:
-    """Add Gaussian noise to an image array in the [0, 255] range."""
+    """Thêm nhiễu Gaussian vào mảng ảnh có giá trị pixel trong [0, 255]."""
     if not np.isfinite(sigma) or sigma < 0:
         raise ValueError(f"Standard deviation sigma must be finite and >= 0, got: {sigma}")
     clean_float = np.asarray(clean_array, dtype=np.float32)
@@ -122,7 +122,7 @@ def add_gaussian_noise(
     sigma: float,
     rng: np.random.Generator | None = None,
 ) -> Image.Image:
-    """Add AWGN to an RGB PIL image."""
+    """Thêm nhiễu Gaussian trắng cộng tính (AWGN) vào ảnh RGB dạng PIL."""
     noisy_array = add_awgn_to_array(np.asarray(image.convert("RGB")), sigma, rng)
     return Image.fromarray(noisy_array, mode="RGB")
 
@@ -135,7 +135,7 @@ def generate_noisy_image(
     jpeg_quality: int = 95,
     resize_size: tuple[int, int] | None = None,
 ) -> Path:
-    """Generate and save one noisy image, optionally resizing it first."""
+    """Tạo và lưu một ảnh nhiễu, có thể đổi kích thước ảnh trước khi thêm nhiễu."""
     source = Path(clean_image_path)
     destination = Path(output_image_path)
     if not source.is_file():
@@ -265,7 +265,7 @@ def generate_noisy_dataset(
     resize_size: tuple[int, int] | None = None,
     jpeg_quality: int = 95,
 ) -> Path:
-    """Generate noisy copies and return their directory (the main.py API)."""
+    """Tạo các bản ảnh nhiễu và trả về thư mục ảnh (API được main.py sử dụng)."""
     effective_level = noiseL if noiseL is not None else noise_level
     mode, fixed_sigma, suffix = _parse_noise_level(effective_level)
     low_sigma, high_sigma = random_range

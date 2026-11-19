@@ -23,7 +23,7 @@ from training.train_dncnn import train_dncnn
 from training.train_end2end import train_end2end
 
 # Adjust experiment settings here; no command-line arguments are required.
-NOISE_LEVEL = 25
+NOISE_LEVEL = 15
 EPOCHS = 10
 BATCH_SIZE = 8
 LEARNING_RATE = 1e-4

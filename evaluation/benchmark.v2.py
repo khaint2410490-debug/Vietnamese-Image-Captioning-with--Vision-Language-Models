@@ -1,4 +1,4 @@
-"""Compare clean baseline, DnCNN denoising, and end-to-end captioning."""
+"""So sánh baseline ảnh sạch, khử nhiễu bằng DnCNN và captioning trực tiếp ảnh nhiễu."""
 
 import csv
 import sys
@@ -36,7 +36,7 @@ DEVICE = None
 def calculate_bleu_scores(
     reference_caption: str | Sequence[str], candidate_caption: str
 ) -> dict[str, float]:
-    """Calculate BLEU-1..4 using the project's Vietnamese caption tokenization."""
+    """Tính BLEU-1..4 với cách tách token tiếng Việt của dự án."""
     references = (
         [reference_caption]
         if isinstance(reference_caption, str)
@@ -76,7 +76,7 @@ def calculate_image_quality(
     clean_img: np.ndarray | torch.Tensor,
     denoised_img: np.ndarray | torch.Tensor,
 ) -> tuple[float, float]:
-    """Measure PSNR and SSIM for matching images represented in [0,1] or [0,255]."""
+    """Tính PSNR và SSIM cho hai ảnh cùng kích thước, có pixel trong [0,1] hoặc [0,255]."""
     clean = _as_numpy(clean_img)
     denoised = _as_numpy(denoised_img)
     if clean.shape != denoised.shape:
@@ -429,7 +429,7 @@ def _run_benchmark(
 
 
 def run_benchmark() -> list[dict]:
-    """Run the benchmark with the configuration constants at the top of this file."""
+    """Chạy benchmark theo các hằng cấu hình ở đầu file."""
     return _run_benchmark(
         noise_level=NOISE_LEVEL,
         limit=LIMIT,
