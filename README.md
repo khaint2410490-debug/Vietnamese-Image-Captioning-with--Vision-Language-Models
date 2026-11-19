@@ -45,7 +45,7 @@ này sẽ khiến import module đánh giá hoặc huấn luyện DnCNN thất b
   sau đó ảnh được lưu JPEG.
 - `data/vocabulary/tokenizer.json`: vocabulary dùng chung với mô hình captioning.
 - `data/processed/caption_weights.pt`: checkpoint baseline.
-- `data/processed/dncnn_weights.pt`: checkpoint DnCNN.
+- `data/processed/dncnn_weights_noise_{level}.pt`: checkpoint DnCNN theo mức nhiễu.
 - `data/processed/end2end_caption_weights_sigma{level}.pt`: checkpoint
   end-to-end theo mức nhiễu.
 
@@ -68,7 +68,7 @@ python main.py
 2. Tạo ảnh nhiễu Gaussian tại
    `data/processed/NoisyImages_sigma{NOISE_LEVEL}/`.
 3. **Phương án 1:** train DnCNN trên cặp ảnh sạch/nhiễu, lưu
-   `data/processed/dncnn_weights.pt`. Khi inference, ảnh nhiễu qua DnCNN rồi
+   `data/processed/dncnn_weights_noise_{NOISE_LEVEL}.pt`. Khi inference, ảnh nhiễu qua DnCNN rồi
    captioner baseline sinh caption.
 4. **Phương án 2:** khởi tạo captioner mới, dùng CNN pretrained trên ImageNet,
    rồi train trực tiếp trên ảnh nhiễu (mở khóa các stage cuối ResNet-18);

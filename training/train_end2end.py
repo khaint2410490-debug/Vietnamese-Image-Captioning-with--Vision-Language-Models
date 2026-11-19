@@ -9,9 +9,10 @@ from model.captioning.image_captioning import ImageCaptioningModel
 from preprocessing.tokenizer import Tokenizer
 from project_paths import (
     IMAGES_DIR,
-    PROCESSED_DATA_DIR,
     TRAIN_CAPTIONS_PATH,
     VOCAB_PATH,
+    PROCESSED_DATA_DIR,
+    get_end2end_weights_path,
 )
 from training.train import encode_captions, load_captions, train
 
@@ -37,10 +38,7 @@ def train_end2end(
     device: torch.device | None = None,
 ) -> list[dict]:
     noisy_dir = noisy_dir or PROCESSED_DATA_DIR / f"NoisyImages_sigma{noise_level}"
-    save_path = (
-        save_path
-        or PROCESSED_DATA_DIR / f"end2end_caption_weights_sigma{noise_level}.pt"
-    )
+    save_path = save_path or get_end2end_weights_path(noise_level)
     if not noisy_dir.is_dir():
         raise FileNotFoundError(f"Không tìm thấy thư mục ảnh nhiễu: {noisy_dir}")
     if noisy_dir.resolve() == Path(IMAGES_DIR).resolve():

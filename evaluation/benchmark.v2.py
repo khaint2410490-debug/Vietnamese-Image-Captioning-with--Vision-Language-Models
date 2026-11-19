@@ -19,12 +19,13 @@ from evaluation.generate_caption import load_model
 from model.denoising.dncnn import DnCNN
 from preprocessing.dataset import image_to_unit_tensor, normalize_imagenet_batch
 from project_paths import (
-    DNCNN_WEIGHTS_PATH,
     IMAGES_DIR,
     PROCESSED_DATA_DIR,
     TEST_CAPTIONS_PATH,
     VOCAB_PATH,
     WEIGHTS_PATH,
+    get_dncnn_weights_path,
+    get_end2end_weights_path,
 )
 
 NOISE_LEVEL = "25"
@@ -169,7 +170,7 @@ def _run_benchmark(
     images_dir: Path = IMAGES_DIR,
     noisy_dir: Path | None = None,
     baseline_weights: Path = WEIGHTS_PATH,
-    dncnn_weights: Path = DNCNN_WEIGHTS_PATH,
+    dncnn_weights: Path | None = None,
     end2end_weights: Path | None = None,
     vocab_path: Path = VOCAB_PATH,
     output_path: Path = PROCESSED_DATA_DIR / "benchmark_comparison.csv",
@@ -189,7 +190,11 @@ def _run_benchmark(
     captions_path = Path(captions_path)
     images_dir = Path(images_dir)
     baseline_weights = Path(baseline_weights)
-    dncnn_weights = Path(dncnn_weights)
+    dncnn_weights = (
+        Path(dncnn_weights)
+        if dncnn_weights is not None
+        else get_dncnn_weights_path(noise_level)
+    )
     vocab_path = Path(vocab_path)
     output_path = Path(output_path)
     device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -198,9 +203,7 @@ def _run_benchmark(
         if noisy_dir is not None
         else PROCESSED_DATA_DIR / f"NoisyImages_sigma{noise_level}"
     )
-    default_end2end = (
-        PROCESSED_DATA_DIR / f"end2end_caption_weights_sigma{noise_level}.pt"
-    )
+    default_end2end = get_end2end_weights_path(noise_level)
     requested_end2end = end2end_weights is not None
     end2end_weights = (
         Path(end2end_weights) if end2end_weights is not None else default_end2end

@@ -24,7 +24,7 @@ quá trình train.
 | --- | --- | --- | --- | --- |
 | `main.py` | Entrypoint và cấu hình thí nghiệm; điều phối train baseline, DnCNN và captioner ảnh nhiễu. | Caption CSV, ảnh sạch, cấu hình, split/checkpoint cần thiết. | Các split, vocabulary, ảnh nhiễu và checkpoint của các model. | Bắt đầu workflow huấn luyện; gọi `split.py`, `preprocessing/`, `training/`. |
 | `split.py` | Chia dữ liệu theo ảnh để tránh cùng một ảnh lọt vào nhiều tập. | `captions.csv`, thư mục ảnh, tỉ lệ chia và seed. | `train.csv`, `validation.csv`, `test.csv`. | Chạy trước khi train và đánh giá. |
-| `project_paths.py` | Tập trung các đường dẫn dự án. | Không có input runtime; lấy thư mục dự án từ vị trí file. | Các hằng `Path` dùng bởi modules khác. | Được import để định vị data, vocabulary, checkpoint và report. |
+| `project_paths.py` | Tập trung các đường dẫn dự án và tạo đường dẫn checkpoint theo mức nhiễu. | Không có input runtime; lấy thư mục dự án từ vị trí file, nhận mức sigma khi gọi helper. | Các hằng `Path` và checkpoint path như `dncnn_weights_noise_50.pt`. | Được import để định vị data, vocabulary, checkpoint và report. |
 | `requirements.txt` | Khai báo thư viện Python cần cài. | Package manager và môi trường Python. | Các dependencies được cài trong môi trường. | Cài trước khi chạy train, inference hoặc evaluation. |
 | `.gitignore` | Chọn file/thư mục Git bỏ qua. | Đường dẫn trong working tree. | Quyết định file nào không được Git theo dõi. | Áp dụng xuyên suốt quá trình phát triển. |
 | `README.md` | Hướng dẫn cài đặt, dữ liệu và cách chạy dự án. | Thông tin mô tả dự án. | Tài liệu hướng dẫn người dùng. | Đọc trước khi thiết lập và chạy workflow. |
@@ -42,7 +42,7 @@ quá trình train.
 | `data/processed/test.csv` | Dữ liệu đánh giá cuối. | `captions.csv`, ảnh và cấu hình split. | Các cặp test. | Đầu vào evaluation/benchmark; không dùng để train. |
 | `data/processed/NoisyImages_*/` | Ảnh nhiễu theo mức sigma. | Ảnh sạch, sigma, seed và tùy chọn noise generation. | Các ảnh nhiễu có cùng tên tương ứng ảnh sạch. | Dùng cho DnCNN, captioner ảnh nhiễu và benchmark. |
 | `data/processed/noisy_image_map*.csv` | Map ảnh sạch/nhiễu và thông tin sigma/chế độ. | Danh sách ảnh và kết quả sinh nhiễu. | CSV ánh xạ. | Theo dõi nguồn gốc ảnh nhiễu và mức nhiễu. |
-| `data/processed/*.pt` | Checkpoint captioner hoặc DnCNN. | Trọng số model trong quá trình train. | Trạng thái model đã lưu. | Được nạp khi inference hoặc benchmark; cần đúng vocabulary và mức nhiễu. |
+| `data/processed/*.pt` | Checkpoint captioner hoặc DnCNN, có mức nhiễu trong tên file. | Trọng số model trong quá trình train. | Ví dụ `dncnn_weights_noise_50.pt`, `end2end_caption_weights_sigma50.pt`. | Được nạp khi inference hoặc benchmark; cần đúng vocabulary và mức nhiễu. |
 | `data/processed/evaluation.csv` | Kết quả caption theo ảnh. | Dự đoán model và caption tham chiếu. | CSV chứa caption và điểm đánh giá từng ảnh. | Artifact của đánh giá caption thông thường. |
 | `data/vocabulary/tokenizer.json` | Vocabulary dùng chung với captioner. | Caption train hoặc vocabulary đã tạo. | Ánh xạ token ↔ ID được lưu. | Dùng khi mã hóa caption, tạo model và giải mã dự đoán. |
 
