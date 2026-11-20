@@ -11,11 +11,11 @@ from preprocessing.noise_generator import generate_noisy_dataset
 from preprocessing.tokenizer import Tokenizer
 from project_paths import (
     CAPTIONS_PATH,
-    DNCNN_WEIGHTS_PATH,
     IMAGES_DIR,
     PROCESSED_DATA_DIR,
     VOCAB_PATH,
     WEIGHTS_PATH,
+    get_dncnn_weights_path,
 )
 from split import split_dataset
 from training.train import encode_captions, load_captions, train
@@ -23,7 +23,7 @@ from training.train_dncnn import train_dncnn
 from training.train_end2end import train_end2end
 
 # Adjust experiment settings here; no command-line arguments are required.
-NOISE_LEVEL = 15
+NOISE_LEVEL = 50
 EPOCHS = 10
 BATCH_SIZE = 8
 LEARNING_RATE = 1e-4
@@ -114,6 +114,7 @@ def train_noisy_approaches(device: torch.device) -> None:
 
     train_csv = PROCESSED_DATA_DIR / "train.csv"
     validation_csv = PROCESSED_DATA_DIR / "validation.csv"
+    dncnn_weights_path = get_dncnn_weights_path(NOISE_LEVEL)
 
     print("\n[Phương án 1] Huấn luyện DnCNN khử nhiễu")
     train_dncnn(
@@ -121,7 +122,7 @@ def train_noisy_approaches(device: torch.device) -> None:
         val_csv=validation_csv,
         clean_images_dir=IMAGES_DIR,
         noisy_images_dir=noisy_dir,
-        weights_save_path=DNCNN_WEIGHTS_PATH,
+        weights_save_path=dncnn_weights_path,
         noise_level=NOISE_LEVEL,
         epochs=DNCNN_EPOCHS,
         batch_size=DNCNN_BATCH_SIZE,
@@ -160,7 +161,6 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Thiết bị: {device}")
 
-    train_baseline(device)
     train_noisy_approaches(device)
 
     print("\nĐã hoàn thành baseline và cả hai phương án noisy-captioning.")

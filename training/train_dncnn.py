@@ -15,7 +15,7 @@ from project_paths import (
     TRAIN_CAPTIONS_PATH,
     VAL_CAPTIONS_PATH,
     IMAGES_DIR,
-    DNCNN_WEIGHTS_PATH,
+    get_dncnn_weights_path,
 )
 
 
@@ -42,7 +42,7 @@ def train_dncnn(
     val_csv: Path = VAL_CAPTIONS_PATH,
     clean_images_dir: Path = IMAGES_DIR,
     noisy_images_dir: Optional[Path] = None,
-    weights_save_path: Path = DNCNN_WEIGHTS_PATH,
+    weights_save_path: Optional[Path] = None,
     noise_level: Union[int, float, str] = 25,
     num_of_layers: Optional[int] = None,
     epochs: int = 15,
@@ -55,6 +55,8 @@ def train_dncnn(
 ) -> dict:
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
+    if weights_save_path is None:
+        weights_save_path = get_dncnn_weights_path(noise_level)
 
     if num_of_layers is None:
         num_of_layers = 20 if str(noise_level).lower() == "random" else 17

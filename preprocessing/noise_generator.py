@@ -14,10 +14,10 @@ from PIL import Image
 from project_paths import (
     CAPTIONS_PATH,
     IMAGES_DIR,
-    NOISY_IMAGE_MAP_PATH,
     NOISY_IMAGES_DIR,
     PROCESSED_DATA_DIR,
     PROJECT_ROOT,
+    get_noisy_image_map_path,
 )
 
 DEFAULT_RANDOM_RANGE = (0.0, 55.0)
@@ -351,7 +351,9 @@ def generate_noisy_dataset(
                         flush=True,
                     )
 
-    csv_map_path = Path(map_path) if map_path is not None else NOISY_IMAGE_MAP_PATH
+    csv_map_path = (
+        Path(map_path) if map_path is not None else get_noisy_image_map_path(suffix)
+    )
     _write_noise_map(csv_map_path, rows, append=append_map)
     print(
         f"[NoiseGenerator] Đã tạo {len(rows)} ảnh nhiễu tại: {target_dir}; "
