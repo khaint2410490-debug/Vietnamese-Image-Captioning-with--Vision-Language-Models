@@ -8,10 +8,11 @@ from pathlib import Path
 from typing import Optional, Union
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, get_worker_info
 from PIL import Image
 
 from preprocessing.image_preprocessing import IMAGE_SIZE, MEAN, STD, resize_image
+from preprocessing.noise_generator import SUPPORTED_DEGRADATION_MODES, apply_degradation
 from project_paths import IMAGES_DIR
 
 
@@ -45,7 +46,30 @@ class NoisyCaptionDataset(Dataset):
         unique_images: bool = False,
         max_len: int = 40,
         seed: int = 42,
+        degradation_mode: str = "gaussian",
+        degradation_kwargs: Optional[dict] = None,
+        dynamic_noise: bool = False,
     ):
+        if not isinstance(degradation_mode, str):
+            raise ValueError(f"degradation_mode must be a string, got: {type(degradation_mode).__name__}")
+        normalized_mode = degradation_mode.strip().lower()
+        if normalized_mode not in SUPPORTED_DEGRADATION_MODES:
+            raise ValueError(
+                f"Unsupported degradation_mode {degradation_mode!r}. "
+                f"Expected one of: {', '.join(SUPPORTED_DEGRADATION_MODES)}."
+            )
+        if str(noise_level).strip().lower() != "random":
+            try:
+                parsed_noise = float(noise_level)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"noise_level must be >= 0 or 'random', got: {noise_level!r}"
+                ) from error
+            if not np.isfinite(parsed_noise) or parsed_noise < 0:
+                raise ValueError(
+                    f"noise_level must be finite and >= 0, got: {noise_level!r}"
+                )
+
         self.split_csv_path = Path(split_csv_path)
         self.clean_images_dir = Path(clean_images_dir)
         self.noisy_images_dir = Path(noisy_images_dir) if noisy_images_dir else None
@@ -54,6 +78,11 @@ class NoisyCaptionDataset(Dataset):
         self.unique_images = unique_images
         self.max_len = max_len
         self.seed = seed
+        self.degradation_mode = normalized_mode
+        self.degradation_kwargs = dict(degradation_kwargs or {})
+        self.dynamic_noise = bool(dynamic_noise)
+        self._dynamic_rng = np.random.default_rng(seed)
+        self._worker_rngs: dict[int, np.random.Generator] = {}
 
         self.samples = []
         seen_images = set()
@@ -88,6 +117,15 @@ class NoisyCaptionDataset(Dataset):
             ids = []
         return torch.tensor(ids, dtype=torch.long)
 
+    def _get_dynamic_rng(self) -> np.random.Generator:
+        worker = get_worker_info()
+        if worker is None:
+            return self._dynamic_rng
+        if worker.id not in self._worker_rngs:
+            seq = np.random.SeedSequence([self.seed, worker.id, worker.seed])
+            self._worker_rngs[worker.id] = np.random.default_rng(seq)
+        return self._worker_rngs[worker.id]
+
     def __getitem__(self, idx: int) -> dict:
         img_name, caption = self.samples[idx]
         clean_path = self.clean_images_dir / img_name
@@ -99,16 +137,25 @@ class NoisyCaptionDataset(Dataset):
             with Image.open(self.noisy_images_dir / img_name) as noisy_pil:
                 noisy_tensor = image_to_unit_tensor(noisy_pil)
         else:
-            rng = np.random.default_rng(self.seed + idx)
-            sigma = (
-                float(rng.uniform(0.0, 55.0))
-                if str(self.noise_level).lower() == "random"
-                else float(self.noise_level)
+            rng = self._get_dynamic_rng() if self.dynamic_noise else np.random.default_rng(self.seed + idx)
+            extra_kwargs = dict(self.degradation_kwargs)
+            is_random = str(self.noise_level).strip().lower() == "random"
+            if self.degradation_mode in {"gaussian", "awgn"}:
+                sigma = float(rng.uniform(0.0, 55.0)) if is_random else float(self.noise_level)
+                extra_kwargs.pop("sigma", None)
+            elif self.degradation_mode == "combined":
+                sigma = None if is_random else float(self.noise_level)
+                extra_kwargs.pop("sigma", None)
+            else:
+                sigma = extra_kwargs.pop("sigma", None)
+
+            noisy_tensor = apply_degradation(
+                clean_tensor,
+                mode=self.degradation_mode,
+                sigma=sigma,
+                rng=rng,
+                **extra_kwargs,
             )
-            noise = torch.from_numpy(
-                rng.normal(0.0, sigma / 255.0, size=clean_tensor.shape).astype(np.float32)
-            )
-            noisy_tensor = torch.clamp(clean_tensor + noise, 0.0, 1.0)
 
         noise_target = noisy_tensor - clean_tensor
 
