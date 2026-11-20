@@ -4,4 +4,3 @@
 __init__.py
 *.jpg
 *.pyc
-noisy_image_map.csv
