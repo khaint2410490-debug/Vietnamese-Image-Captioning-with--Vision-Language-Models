@@ -40,9 +40,9 @@ này sẽ khiến import module đánh giá hoặc huấn luyện DnCNN thất b
 - `split.py` tạo `data/processed/train.csv`, `validation.csv` và `test.csv`,
   chia theo ảnh để caption của cùng ảnh không rơi vào nhiều tập.
 - `preprocessing/noise_generator.py` tạo ảnh nhiễu ở
-  `data/processed/NoisyImages_sigma{level}/` và file ánh xạ
-  `data/processed/noisy_image_map.csv`. Nhiễu được cộng trên pixel RGB [0,255],
-  sau đó ảnh được lưu JPEG.
+  `data/processed/NoisyImages_sigma{level}/` và file ánh xạ riêng theo mức nhiễu
+  `data/processed/noisy_image_map_noise_{level}.csv`. Nhiễu được cộng trên pixel
+  RGB [0,255], sau đó ảnh được lưu JPEG.
 - `data/vocabulary/tokenizer.json`: vocabulary dùng chung với mô hình captioning.
 - `data/processed/caption_weights.pt`: checkpoint baseline.
 - `data/processed/dncnn_weights_noise_{level}.pt`: checkpoint DnCNN theo mức nhiễu.

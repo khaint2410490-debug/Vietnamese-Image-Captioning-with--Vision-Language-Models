@@ -57,3 +57,9 @@ def get_end2end_weights_path(noise_level: int | float | str) -> Path:
     """Trả về đường dẫn checkpoint captioner tương ứng với mức nhiễu."""
     label = _noise_level_label(noise_level)
     return PROCESSED_DATA_DIR / f"end2end_caption_weights_sigma{label}.pt"
+
+
+def get_noisy_image_map_path(noise_level: int | float | str) -> Path:
+    """Trả về đường dẫn file map ảnh nhiễu tương ứng với mức nhiễu."""
+    label = _noise_level_label(noise_level)
+    return PROCESSED_DATA_DIR / f"noisy_image_map_noise_{label}.csv"
