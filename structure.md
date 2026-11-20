@@ -12,7 +12,6 @@ chạy không được liệt kê từng file vì số lượng lớn và có th
 4. `model/` định nghĩa CNN encoder, DnCNN và các thành phần captioner.
 5. `training/` huấn luyện baseline, DnCNN và captioner trực tiếp trên ảnh nhiễu.
 6. `evaluation/` sinh caption, đánh giá chất lượng và benchmark các pipeline.
-7. `tests/` kiểm tra các hành vi quan trọng của workflow.
 
 Khi chạy `python main.py`, luồng huấn luyện được điều phối trong `main.py`.
 Các benchmark và đánh giá trên tập test là tác vụ riêng, không tự chạy trong
@@ -109,18 +108,8 @@ phải entrypoint huấn luyện chính.
 | `evaluation/benchmark.v2.py` | So sánh baseline, DnCNN + baseline và captioner noisy. | Checkpoint, vocabulary, test CSV, ảnh sạch/nhiễu và cấu hình. | Kết quả theo ảnh trong CSV, BLEU/thời gian và PSNR/SSIM cho DnCNN. | Benchmark so sánh các pipeline sau khi train. |
 | `evaluation/__init__.py` | Đánh dấu package đánh giá. | Không có input runtime. | Namespace `evaluation`. | Cho phép import các module đánh giá. |
 
-## Kiểm thử: `tests/`
-
-| File | Nhiệm vụ | Input | Output | Trong pipeline |
-| --- | --- | --- | --- | --- |
-| `tests/test_main_workflow.py` | Kiểm tra thứ tự workflow và tham số truyền giữa các bước. | Hàm `main()`/workflow với trainer và generator được mock. | Các assertion pass hoặc lỗi test. | Regression test cho orchestration. |
-| `tests/test_noise_generator.py` | Kiểm tra CSV BOM, sinh ảnh và lỗi header. | CSV/ảnh tạm trong thư mục temporary. | Ảnh nhiễu/map hoặc lỗi được kiểm tra. | Regression test cho noise generation. |
-| `tests/test_train_end2end.py` | Kiểm tra captioner noisy nhận đúng samples và không nạp checkpoint baseline. | Dữ liệu tạm; model, tokenizer và train được mock. | Các assertion pass hoặc lỗi test. | Regression test cho Phương án 2. |
-| `tests/test_benchmark_v2.py` | Kiểm tra metrics, giới hạn mẫu, validate input và API benchmark. | Mảng ảnh, tham số và dữ liệu test tạm. | Kết quả metric hoặc lỗi đúng loại. | Regression test cho benchmark v2. |
-
 ## Thứ tự chạy thường dùng
 
 1. Đặt `captions.csv` và ảnh trong `data/raw/`.
 2. Chạy `python main.py` để chia dữ liệu, train baseline, tạo ảnh nhiễu, train DnCNN và train Phương án 2.
 3. Chạy các tiện ích trong `evaluation/` riêng khi muốn sinh caption, chấm điểm tập test hoặc so sánh benchmark.
-4. Chạy `python -m unittest discover -s tests -v` để kiểm tra các workflow.
