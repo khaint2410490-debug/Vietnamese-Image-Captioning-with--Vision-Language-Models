@@ -23,6 +23,8 @@ from model.captioning.image_captioning import ImageCaptioningModel
 from preprocessing.tokenizer import DEFAULT_VOCAB_PATH, Tokenizer
 from project_paths import CAPTIONS_PATH, WEIGHTS_PATH
 
+CHECKPOINT_TIMESTAMP_TOLERANCE_SECONDS = 1.0
+
 def load_model(
     weights_path: str | Path = WEIGHTS_PATH,
     vocab_path: str | None = None,
@@ -47,7 +49,10 @@ def load_model(
             CAPTIONS_PATH.stat().st_mtime,
             vocab_file.stat().st_mtime,
         )
-        if weights_file.stat().st_mtime < latest_data_time:
+        if (
+            weights_file.stat().st_mtime + CHECKPOINT_TIMESTAMP_TOLERANCE_SECONDS
+            < latest_data_time
+        ):
             raise RuntimeError(
                 "Checkpoint cũ hơn captions hoặc vocabulary. "
                 "Hãy chạy lại main.py để huấn luyện mô hình bằng dữ liệu mới."
