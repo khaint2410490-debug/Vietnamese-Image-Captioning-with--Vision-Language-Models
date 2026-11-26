@@ -34,6 +34,7 @@ này sẽ khiến import module đánh giá hoặc huấn luyện DnCNN thất b
 
 ## Dữ liệu và artifact
 
+- Dataset Flickr8k: [Kaggle – adityajn105/flickr8k](https://www.kaggle.com/datasets/adityajn105/flickr8k).
 - `data/raw/captions.csv`: CSV có header `image,caption`, chứa caption tiếng
   Việt; một ảnh có thể có nhiều caption.
 - `data/raw/Images/`: ảnh gốc, tên file khớp với cột `image`.
