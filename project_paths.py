@@ -15,7 +15,7 @@ VAL_CAPTIONS_PATH = PROCESSED_DATA_DIR / "validation.csv"
 TEST_CAPTIONS_PATH = PROCESSED_DATA_DIR / "test.csv"
 EVALUATION_RESULTS_PATH = PROCESSED_DATA_DIR / "evaluation.csv"
 
-IMAGES_DIR = RAW_DATA_DIR / "Images"
+IMAGES_DIR = RAW_DATA_DIR / "Images" / "Images"
 VOCAB_PATH = VOCABULARY_DIR / "tokenizer.json"
 WEIGHTS_PATH = PROCESSED_DATA_DIR / "caption_weights.pt"
 
